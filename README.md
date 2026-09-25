@@ -1,145 +1,999 @@
-# ARINC 615A offline target
+<div align="center">
 
-For the office handoff, extract `delivery/ARINC615A_OFFICE_READY.zip` and follow
-its `START_HERE.md`. The same instructions are in [workbench/START_HERE.md](workbench/START_HERE.md).
-Do not build all legacy folders recursively in Workbench.
+<img src="docs/images/arinc-logo.webp" alt="ARINC" width="300">
 
-The active root build is target-only by default. ARINC 665 binary support, TFTP,
-local utility/checksum sources and Boost 1.88 headers are bundled in this repository.
-No sibling repository, Git command, Internet download, Qt, external Helper,
-ARINC 649, or separate ARINC 645 library is required for this target build.
+# ARINC 615A Target for VxWorks 24.03
 
-Boost is still required (Asio networking, Hash2 hashing, property-tree JSON,
-CRC, exceptions and header utilities); there is no separately installed Boost
-runtime. See [dependency details](third_party/DEPENDENCIES.md).
+**The target side of the ARINC 615A Data Loading Protocol, as a VxWorks Downloadable Kernel Module**
+Answers FIND, reports part numbers, accepts software uploads and serves downloads over Ethernet.
 
-**Validation status:** see [VALIDATION.md](VALIDATION.md). Host tests are not
-proof of a VxWorks build. The exact licensed VxWorks 24.03 SDK/VSB/BSP and board
-are required for final build, load and debug acceptance. The production graph is
-C++17 and does not require `<format>`, `<span>`, `<concepts>`, or `<ranges>`.
+[![VxWorks](https://img.shields.io/badge/VxWorks-24.03-D52B1E?style=for-the-badge&logo=windriver&logoColor=white)](#setup--build-the-dkm-in-workbench)
+[![Workbench](https://img.shields.io/badge/Workbench-4-D52B1E?style=for-the-badge)](#setup--build-the-dkm-in-workbench)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/17)
+[![LLVM](https://img.shields.io/badge/LLVM-17.0.6-262D3A?style=for-the-badge&logo=llvm&logoColor=white)](#office-image-compatibility)
+[![Boost](https://img.shields.io/badge/Boost-1.88_bundled-F7901E?style=for-the-badge&logo=boost&logoColor=white)](third_party/DEPENDENCIES.md)
 
-## Offline host verification
+[![CPU](https://img.shields.io/badge/CPU-Cortex--A72_ARM64-0091BD?style=for-the-badge&logo=arm&logoColor=white)](#office-image-compatibility)
+[![Offline](https://img.shields.io/badge/Build-100%25_offline-2EA043?style=for-the-badge)](#layer-1--host-build-and-offline-verification)
+[![Tests](https://img.shields.io/badge/Host_tests-229%2F229-2EA043?style=for-the-badge)](#test-results)
+[![CLI](https://img.shields.io/badge/Loader_CLI-7%2F7-2EA043?style=for-the-badge)](#layer-5--data-loader-cli-acceptance)
+[![Licence](https://img.shields.io/badge/Licence-MPL--2.0-A6CE39?style=for-the-badge&logo=mozilla&logoColor=white)](LICENSE)
+[![Protocol](https://img.shields.io/badge/ARINC-615A--4-1F6FEB?style=for-the-badge)](#protocol-background)
 
-With a C++17 compiler, CMake 3.24+, Ninja and Python 3 already installed:
+[![Tested with](https://img.shields.io/badge/Tested_with-ARINC_615A_CLI_Tool_Suite-8250DF?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite)
+[![GUI](https://img.shields.io/badge/Also-ARINC_615A_GUI_Tool_Suite-5A6472?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Hitheshkaranth/arinc-615a-gui-tool-suite)
 
-```sh
+</div>
+
+---
+
+## What this is
+
+ARINC 615A is how aircraft software gets onto, and off, the boxes on board. A
+ground **data loader** talks over Ethernet to a **target**, the LRU being loaded.
+The [ARINC 615A CLI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite)
+is the loader. **This repository is the other end: the target.**
+
+It builds the ARINC 615A **Target Hardware Application (THA)** as a VxWorks 24.03
+**Downloadable Kernel Module (DKM)** for the office board: NXP Layerscape
+(LS1028A), Cortex-A72, LLVM. Once loaded, the board:
+
+- **answers FIND** so data loaders can discover it on the network,
+- **reports its hardware and part numbers** (Information operation, `LCL`),
+- **accepts uploads** of ARINC 665 loads, checking length and CRC before storing them,
+- **serves downloads**, both media-defined and operator-defined,
+- **rejects bad input** such as malformed packets, empty headers, path traversal and corrupt data, and keeps serving.
+
+Everything needed to build it is in the repository, including Boost. There are
+no downloads, no sibling repositories and no Git at build time. A ready-made
+Workbench handoff lives in
+[`delivery/ARINC615A_OFFICE_READY.zip`](delivery/ARINC615A_OFFICE_READY.zip).
+
+> [!IMPORTANT]
+> **Validation status.** Everything below the board has been proven: host builds,
+> 229 regression cases, a VxWorks-configured compile of every source file, an audit
+> of the office kernel image, and end-to-end runs against the real data loader CLI.
+> **The Workbench build and the run on the physical board still have to be
+> done in the office**, because the licensed SDK and the board are not available
+> off-site. [`VXWORKS_TEST_PROCEDURE.md`](workbench/VXWORKS_TEST_PROCEDURE.md)
+> is the checklist that closes that gap. See [VALIDATION.md](VALIDATION.md).
+
+---
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    subgraph GROUND["🖥️  Windows PC — ground side"]
+        direction TB
+        CLI["<b>arinc_615a_operation.exe</b><br/>ARINC 615A CLI Tool Suite<br/><i>the real data loader</i>"]
+        PS["<b>tests/cli_acceptance.ps1</b><br/><i>drives the CLI · 7 checks</i>"]
+        PY["<b>tests/vxworks_target_test.py</b><br/><i>independent peer · 9 checks</i>"]
+        WB["<b>Workbench 4</b><br/><i>build · load · debug</i>"]
+        PS --> CLI
+    end
+
+    subgraph BOARD["✈️  VxWorks 24.03 board — target side"]
+        direction TB
+        SHELL["kernel shell<br/><i>arinc615a* entry points</i>"]
+        DKM["<b>ARINC 615A DKM</b><br/>task tArinc · arinc615aRun"]
+        FS["/sd0a/arinc_test<br/><i>upload · download · config</i>"]
+        SHELL --> DKM
+        DKM <--> FS
+    end
+
+    CLI <-->|"UDP 1001 · FIND"| DKM
+    CLI <-->|"UDP 59 · TFTP · 615A files"| DKM
+    PY <-->|"UDP 1001 / 59"| DKM
+    WB -->|"target server · .out"| SHELL
+
+    classDef ground fill:#1F6FEB,stroke:#0D419D,color:#fff
+    classDef board fill:#238636,stroke:#116329,color:#fff
+    classDef tool fill:#8250DF,stroke:#5A32A3,color:#fff
+    class CLI,WB ground
+    class PS,PY tool
+    class SHELL,DKM,FS board
+```
+
+The loader starts every conversation. The target listens on **UDP 1001** (FIND)
+and **UDP 59** (data load, not the usual TFTP port 69), then opens TFTP transfers
+back to the loader for status and data files. Every operation is a set of
+**files** moved over TFTP; only FIND is a plain request and answer.
+
+### Inside the module
+
+```mermaid
+flowchart TB
+    subgraph DKM["ARINC 615A DKM · 129 C++17 translation units"]
+        direction TB
+        EP["<b>workbench/EntryPoints.cpp · TestSupport.cpp</b><br/><i>C entry points for the kernel shell</i>"]
+        THA["<b>THA application</b><br/>app/arinc_615a_unit_test/arinc_615a_test_tha<br/><i>JSON config · operation wiring</i>"]
+        TGT["<b>lib/arinc_615a/target</b><br/><i>Information · Upload · Media/Operator Download state machines</i>"]
+        FIND["<b>lib/arinc_615a/find</b><br/><i>FIND server · IRQ/IAN</i>"]
+        FILES["<b>lib/arinc_615a/files</b><br/><i>LCI LCL LUI LUR LUS LND LNO LNL LNA LNS…</i>"]
+        A665["<b>third_party/arinc_665</b><br/><i>load header parse · CRC checks</i>"]
+        TFTP["<b>lib/tftp</b><br/><i>client · server · 615A options</i>"]
+        ASIO["<b>Boost.Asio</b> · select reactor<br/><i>socket wake-up, no pipe()</i>"]
+        EP --> THA --> TGT
+        THA --> FIND
+        TGT --> FILES --> TFTP
+        TGT --> A665
+        FIND --> ASIO
+        TFTP --> ASIO
+    end
+    ASIO -->|"sockLib · selectLib · IPNET"| NET["VxWorks network stack"]
+
+    classDef mine fill:#0B5CA8,stroke:#083F73,color:#fff
+    classDef os fill:#5A6472,stroke:#3D4551,color:#fff
+    class EP,THA,TGT,FIND,FILES,A665,TFTP,ASIO mine
+    class NET os
+```
+
+---
+
+## Architecture in detail
+
+The diagrams below follow the code: `app/arinc_615a_unit_test/arinc_615a_test_tha/arinc_615a_test_tha.cpp`
+(runtime and dispatch), `TargetUploadOperation.cpp` (upload checks),
+`lib/arinc_support/BuildConfig.hpp` (VxWorks adaptation) and `tools/prepare_office.py`
+(packaging). The ground side in every diagram is the
+**[ARINC 615A CLI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite)**
+(`arinc_615a_operation.exe`), the data loader used to test this target.
+
+### 1 · Task and event-loop model
+
+The module creates **no threads of its own**. `arinc615aRun` builds one
+`boost::asio::io_context`, registers the FIND server and the ARINC 615A target
+protocol on it, and runs it **inside the calling task**, `tArinc`. Every
+callback, timer and TFTP transfer runs one at a time on that task, so the
+protocol code needs no locks. Stopping is a message into the event loop, not a
+kill.
+
+```mermaid
+flowchart TB
+    subgraph SHELL["kernel shell / any other task"]
+        SPAWN["taskSpawn tArinc … arinc615aRun(json)"]
+        STOP["arinc615aStop()"]
+    end
+
+    subgraph TASK["task tArinc · 1 MiB stack · VX_FP_TASK"]
+        direction TB
+        CFG["runFromFile(json)<br/><i>parse JSON → TargetDataLoaderConfiguration</i>"]
+        GUARD{"another runtime<br/>already active?"}
+        RT["Runtime.run()"]
+        subgraph LOOP["io_context.run() · single-threaded event loop"]
+            direction LR
+            FS["FIND server<br/><i>UDP 1001</i>"]
+            PR["Target protocol<br/><i>TFTP server · UDP 59</i>"]
+            OPS["active operation<br/><i>at most one</i>"]
+            PR --> OPS
+        end
+        END(["return 0 · task exits"])
+        CFG --> GUARD
+        GUARD -->|no| RT --> LOOP
+        LOOP -->|"io_context.stop()"| END
+    end
+    GUARD -->|yes| REJ(["return error · 'already running'<br/><i>first runtime keeps serving</i>"])
+
+    SPAWN --> CFG
+    STOP -->|"requestStop(): post(stop) into the loop"| LOOP
+    LOOP -. "stop(): findServer.stop · protocol.stop · io_context.stop" .-> END
+
+    classDef task fill:#1F6FEB,stroke:#0D419D,color:#fff
+    classDef loop fill:#238636,stroke:#116329,color:#fff
+    classDef bad fill:#9E6A03,stroke:#7D4E00,color:#fff
+    class CFG,RT task
+    class FS,PR,OPS loop
+    class REJ bad
+```
+
+**Why this matters on VxWorks.** One task means one stack to size (`checkStack`),
+and nothing is left running after `arinc615aRun` returns, so `unld` is safe once
+`tArinc` has gone. `arinc615aStop` is safe to call from any task: it only posts
+a message, and the stop itself runs inside `tArinc`.
+
+### 2 · Request dispatch
+
+Every data-load request, whichever operation it is, arrives as a TFTP read of an
+initialisation file (`<TARGET_ID>.LCI`, `.LUI`, `.LND` or `.LNO`) and goes
+through one gate, `Runtime::operationRequest`. A request that fails the gate
+still gets a proper ARINC 615A answer: an **error operation** that returns
+*Operation Denied* or *Not Supported* instead of silence.
+
+```mermaid
+flowchart TD
+    REQ(["Loader reads TARGET_ID.xxI<br/><i>UDP 59 · TFTP RRQ</i>"]) --> ID{"target ID in<br/>targets_configuration?"}
+    ID -->|no| E1["ErrorOperation<br/><b>Operation Denied</b>"]
+    ID -->|yes| BUSY{"operation already<br/>active?"}
+    BUSY -->|yes| E2["ErrorOperation<br/><b>Denied</b> · 'Another operation already active'"]
+    BUSY -->|no| TYPE{"operation type"}
+    TYPE -->|LCI| INF["Information"]
+    TYPE -->|LUI| UPL["Upload"]
+    TYPE -->|LND| MDD["Media Defined Download"]
+    TYPE -->|LNO| ODD["Operator Defined Download"]
+    TYPE -->|other| E3["ErrorOperation<br/><b>Not Supported</b>"]
+    INF & UPL & MDD & ODD --> EN{"enabled in<br/>JSON config?"}
+    EN -->|no| E4["ErrorOperation<br/><b>Denied</b> · 'not Enabled'"]
+    EN -->|yes| RUN(["operation started<br/><i>initialisation answer 0001 Accepted</i>"])
+
+    classDef ok fill:#238636,stroke:#116329,color:#fff
+    classDef err fill:#DA3633,stroke:#A40E26,color:#fff
+    classDef op fill:#1F6FEB,stroke:#0D419D,color:#fff
+    class RUN ok
+    class E1,E2,E3,E4 err
+    class INF,UPL,MDD,ODD op
+```
+
+### 3 · Protocol file exchange per operation
+
+ARINC 615A is file-driven. The loader starts each operation by *reading* an
+initialisation file from the target. After that, the **target** pushes status
+files to the loader, and whichever side owns the data sends it. `(P)` marks the
+files that use the port the loader advertised with `--port-option`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant L as Loader<br/>(CLI Tool Suite)
+    participant T as Target (tArinc)
+
+    rect rgb(230, 240, 255)
+    Note over L,T: Information
+    L->>T: read  ARINC_1.LCI
+    T-->>L: LCI · 0001 Accepted
+    T->>L: write ARINC_1.LCL (P) · hardware + part numbers
+    end
+
+    rect rgb(230, 255, 235)
+    Note over L,T: Upload
+    L->>T: read  ARINC_1.LUI
+    T->>L: write ARINC_1.LUS (P) · 0001 Accepted
+    L->>T: write ARINC_1.LUR · list of load headers
+    T->>L: read  DEMOLOAD.LUH (P)
+    T->>L: read  payload.bin (P) · for every data file in the header
+    T->>L: write ARINC_1.LUS (P) · 0002 … then 0003 Completed
+    end
+
+    rect rgb(255, 245, 225)
+    Note over L,T: Media Defined Download
+    L->>T: read  ARINC_1.LND
+    T->>L: write ARINC_1.LNS (P) · Accepted
+    L->>T: write ARINC_1.LNR · requested files
+    T->>L: write payload.bin (P)
+    T->>L: write ARINC_1.LNS (P) · 0003 Completed
+    end
+
+    rect rgb(245, 235, 255)
+    Note over L,T: Operator Defined Download
+    L->>T: read  ARINC_1.LNO
+    T->>L: write ARINC_1.LNL (P) · files available
+    L->>T: write ARINC_1.LNA · operator's selection
+    T->>L: write payload.bin (P)
+    T->>L: write ARINC_1.LNS (P) · 0003 Completed
+    end
+```
+
+| Operation | Init file (loader reads) | Loader writes | Target writes | Final status |
+| --- | --- | --- | --- | --- |
+| Information | `LCI` | — | `LCL` | Completed with the `LCL` |
+| Upload | `LUI` | `LUR`, then serves `.LUH` + data files | `LUS` (repeated) | `LUS` 0003 |
+| Media Defined Download | `LND` | `LNR` | `LNS`, requested files | `LNS` 0003 |
+| Operator Defined Download | `LNO` | `LNA` | `LNL`, `LNS`, selected files | `LNS` 0003 |
+
+Download sources come from the configured download directory; uploads land in
+the configured upload directory. Both are set per target in the JSON config.
+
+### 4 · Upload validation pipeline
+
+An upload is only accepted if **the bytes stored on the target's disk** match
+what the load header promises. The check runs on the stored file, not on the
+data received over the network, so a filesystem write error is caught too.
+
+```mermaid
+flowchart TD
+    A(["LUR received · load list"]) --> B["fetch LUH from the loader"]
+    B --> C{"LUH parses as an<br/>ARINC 665 load header<br/>with ≥ 1 data file?"}
+    C -->|"no · empty or malformed"| X1["abort · 0x1003<br/><i>'Invalid Load Header' ·<br/>'does not contain data files'</i>"]
+    C -->|yes| D{"every data-file name safe?<br/><i>not empty · not . or ..<br/>no / \ or :</i>"}
+    D -->|"no · path traversal"| X2["abort · 'Invalid load filename'<br/><i>nothing written</i>"]
+    D -->|yes| E["for each data and support file:<br/>TFTP read into upload directory<br/><i>expected length · CRC16 · check value from the header</i>"]
+    E --> F{"stored file on disk:<br/>length = header length<br/>CRC16 = header CRC<br/>check value matches?"}
+    F -->|no| X3["LoadPartNumberOrDownloadFileFailed<br/>abort · 'Stored file size/checksum mismatch'"]
+    F -->|yes| G{"more files?"}
+    G -->|yes| E
+    G -->|no| H(["loadFinished · LUS 0003 Completed"])
+
+    classDef ok fill:#238636,stroke:#116329,color:#fff
+    classDef err fill:#DA3633,stroke:#A40E26,color:#fff
+    classDef step fill:#1F6FEB,stroke:#0D419D,color:#fff
+    class H ok
+    class X1,X2,X3 err
+    class B,E step
+```
+
+Each rejection branch is exercised by a test: T07 (empty, malformed and
+path-traversal headers) and T08 (corrupt and truncated payloads) in
+[`vxworks_target_test.py`](tests/vxworks_target_test.py), and `arinc615aVerifyTestUpload`
+confirms afterwards that no `escape.bin` ever reached the disk.
+
+### 5 · VxWorks adaptation layer
+
+Almost all of the code is plain, portable C++17. Everything VxWorks-specific is
+concentrated in one force-included header and one Boost overlay, so the
+protocol code never tests for the platform.
+
+```mermaid
+flowchart LR
+    subgraph SRC["every translation unit"]
+        FI["<b>-include arinc_support/BuildConfig.hpp</b>"]
+    end
+
+    subgraph BC["BuildConfig.hpp · only when __VXWORKS__"]
+        direction TB
+        H["vxWorks.h · sockLib.h · ioLib.h · sysLib.h · selectLib.h"]
+        U["#undef m_data<br/><i>mbuf.h macro vs Boost.PropertyTree</i>"]
+        K["#error unless _WRS_KERNEL<br/><i>DKM, never RTP</i>"]
+        P["BOOST_PLATFORM_CONFIG → BoostVxWorks.hpp"]
+        R["disable epoll · kqueue · /dev/poll<br/>serial ports · local sockets"]
+        S["ARINC_ASIO_SOCKET_SELECT_INTERRUPTER"]
+    end
+
+    subgraph OV["Boost.Asio · bundled 1.88 + overlay"]
+        direction TB
+        SEL["select reactor"]
+        INT["socket_select_interrupter<br/><i>loopback TCP pair instead of pipe()</i>"]
+        POLL["poll() → select() shim"]
+        SP["socketpair → not supported"]
+    end
+
+    subgraph IMG["office kernel image components"]
+        direction TB
+        C1["INCLUDE_SOCKLIB · IPNET"]
+        C2["INCLUDE_SELECT"]
+        C3["INCLUDE_POSIX_PTHREADS · CLOCKS"]
+        C4["INCLUDE_CPLUS · LIBCPLUS_STD<br/><i>C++17 · std::filesystem</i>"]
+        C5["INCLUDE_DOSFS · SD"]
+    end
+
+    FI --> BC
+    S --> INT
+    R --> SEL
+    SEL --> C2
+    INT --> C1
+    POLL --> C2
+    H --> C1
+    BC -.-> C3
+    BC -.-> C4
+    BC -.->|"uploads · downloads via std::filesystem"| C5
+
+    classDef cfg fill:#0B5CA8,stroke:#083F73,color:#fff
+    classDef asio fill:#8250DF,stroke:#5A32A3,color:#fff
+    classDef img fill:#5A6472,stroke:#3D4551,color:#fff
+    class FI,H,U,K,P,R,S cfg
+    class SEL,INT,POLL,SP asio
+    class C1,C2,C3,C4,C5 img
+```
+
+The preflight ([layer 2](#layer-2--vxworks-preflight)) checks this layer on
+every build. It asserts the select reactor, the socket interrupter and the
+`selectLib.h` include chain, and its stub `sockLib.h` defines `m_data`, so a
+missing `#undef` fails the check.
+
+### 6 · Build and delivery pipeline
+
+```mermaid
+flowchart LR
+    subgraph REPO["this repository"]
+        direction TB
+        SRCS["lib · app · workbench<br/><i>C++17 sources</i>"]
+        TAR["boost_1_88_0_headers.tar.gz<br/><i>SHA-256 pinned</i>"]
+        OVL["boost_vxworks_overlay"]
+    end
+
+    subgraph HOST["host build · Linux / WSL"]
+        direction TB
+        BB["BundledBoost.cmake<br/><i>extract → overlay → Asio patches</i>"]
+        T1["ctest · 229 cases"]
+        T2["preflight · 129/129"]
+        T3["target audit"]
+        GEN["tools/prepare_office.py"]
+        BB --> T1 & T2 & T3
+        T1 & T2 & T3 --> GEN
+    end
+
+    subgraph PKG["ARINC615A_OFFICE_READY.zip"]
+        direction TB
+        PSRC["src/ · 129 files · SOURCES.txt"]
+        PINC["include/ · expanded Boost headers"]
+        PDOC["START_HERE · BUILD_OPTIONS<br/>VXWORKS_TEST_PROCEDURE"]
+        PT["tests/ · Python peer · CLI script · patch"]
+        PSUM["SHA256SUMS · BUILD_INFO<br/><i>source commit</i>"]
+    end
+
+    subgraph OFFICE["office · Windows"]
+        direction TB
+        WBD["Workbench 4<br/>DKM project · LLVM"]
+        OUT["ARINC615A.out"]
+        BRD["LS1028A board<br/>VxWorks 24.03"]
+        WBD --> OUT -->|"ld · target server"| BRD
+    end
+
+    SRCS & TAR & OVL --> BB
+    GEN --> PKG
+    PKG --> WBD
+    PT -.->|"layers 4 and 5"| BRD
+
+    classDef repo fill:#1F6FEB,stroke:#0D419D,color:#fff
+    classDef host fill:#8250DF,stroke:#5A32A3,color:#fff
+    classDef pkg fill:#9E6A03,stroke:#7D4E00,color:#fff
+    classDef office fill:#238636,stroke:#116329,color:#fff
+    class SRCS,TAR,OVL repo
+    class BB,T1,T2,T3,GEN host
+    class PSRC,PINC,PDOC,PT,PSUM pkg
+    class WBD,OUT,BRD office
+```
+
+The office machine needs no Python, CMake, Git or internet: the ZIP carries
+expanded headers and an explicit source list. `BUILD_INFO.txt` records the
+source commit, and `SHA256SUMS.txt` lets the office check that nothing changed in
+transit.
+
+---
+
+## Shell entry points
+
+The module exports plain C functions, so everything is driven from the VxWorks
+kernel shell (C interpreter) or from a Workbench debug launch.
+
+| Function | Returns | Purpose |
+| --- | --- | --- |
+| `arinc615aSelfTest()` | `0` = pass | Codec and SHA-256 self-test. No network or storage needed |
+| `arinc615aDemo()` | on stop | FIND + Information demo with built-in defaults; **blocks** its task |
+| `arinc615aRun(const char *json)` | on stop | Full target from a JSON config; **blocks** its task |
+| `arinc615aStop()` | `1` = queued | Ask a running `arinc615aRun`/`arinc615aDemo` to stop (call from another task) |
+| `arinc615aPrepareTest(const char *root)` | `0` = ok | Create `root/upload`, `root/download` fixtures and `root/test-config.json` |
+| `arinc615aVerifyTestUpload(const char *root)` | `0` = pass | Check the uploaded `payload.bin` is byte-identical and nothing escaped the upload folder |
+| `arinc615aWriteFixtures(const char *dir)` | `0` = ok | Write only the four test fixtures into `dir` |
+
+Defaults used by the demo and the test config: **FIND port 1001**, **TFTP port 59**,
+**target ID `ARINC_1`**, hardware ID `ARINC`, part number `DEMO-PN`, serial `TEST001`.
+
+---
+
+## Office image compatibility
+
+The code was audited against the office's exported projects
+(`UVDR_VIP_20260218`, `UVDR_VSB_20260218`, BSP `nxp_layerscape_a72_2_0_7_4`, LLVM,
+`CORTEX_A72`). Every C and POSIX function the module calls was looked up in the
+VSB library symbol tables, and every owning component was checked in the kernel
+image. The gaps this found are fixed in the code, so the module works on the
+**image as it is**, with no kernel rebuild:
+
+| The image lacks | Would have caused | Fix in this repository |
+| --- | --- | --- |
+| `INCLUDE_POSIX_PIPES` → no `pipe()` | Unresolved `pipe` at `ld`; the module never loads | Boost.Asio uses its loopback-socket wake-up (`ARINC_ASIO_SOCKET_SELECT_INTERRUPTER`, set in `BuildConfig.hpp`) |
+| `pthread_rwlock_*` (not in the VSB) | Unresolved at load or compile | Statistics classes use `std::mutex` instead of `std::shared_mutex` |
+| `poll()` (not linked into the image) | Unresolved `poll` | `poll()` shim over `select()` in the bundled Asio overlay |
+| `socketpair()` (not declared) | Compile error | Asio's `socketpair` reports unsupported, as on Windows (local sockets are disabled) |
+| `m_data` macro from `mbuf.h` | Boost.PropertyTree compile errors | `#undef m_data` in `BuildConfig.hpp` right after the VxWorks headers |
+| A RAM disk (`/ram0` does not exist) | Upload/download paths fail | Configs and tests use the SD card: `/sd0a/...` |
+
+Present and used: C++ with exceptions and RTTI, the Dinkumware C++17 library
+including `std::filesystem`, pthreads, clocks, `select`, IPv4 sockets, DOSFS on
+SD, loader and unloader, `memShow` and `checkStack`.
+
+The Boost fixes live in [`third_party/boost_vxworks_overlay`](third_party/boost_vxworks_overlay)
+and are applied by [`cmake/BundledBoost.cmake`](cmake/BundledBoost.cmake), so a
+regenerated package always carries them.
+
+---
+
+## Setup — build the DKM in Workbench
+
+### Prerequisites
+
+| | Needed |
+| --- | --- |
+| Host | Windows PC with **Wind River Workbench 4** and the office **VxWorks 24.03 SDK** |
+| Target image | The office VIP/VSB (or any image with the components above) running on the board |
+| Network | PC and board on the same IPv4 subnet; UDP **59** and **1001** open |
+| Storage | A writable DOSFS partition on the board, e.g. `/sd0a` |
+| For testing | Python 3.8+ and the [ARINC 615A CLI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite) |
+
+### Steps
+
+```mermaid
+flowchart LR
+    Z(["ARINC615A_OFFICE_READY.zip"]) --> X["Extract to a short path<br/><i>C:\ARINC\ARINC615A_OFFICE_READY</i>"]
+    X --> P["New project in Workbench:<br/><b>VxWorks Downloadable Kernel Module</b>"]
+    P --> O["Set options from<br/><b>BUILD_OPTIONS.txt</b>"]
+    O --> I["Build input: <b>src/ only</b><br/><i>129 files in SOURCES.txt</i>"]
+    I --> B["Build Debug"]
+    B --> OUT(["<b>ARINC615A.out</b>"])
+
+    classDef ok fill:#238636,stroke:#116329,color:#fff
+    classDef step fill:#1F6FEB,stroke:#0D419D,color:#fff
+    class Z,OUT ok
+    class X,P,O,I,B step
+```
+
+1. **Extract** `delivery/ARINC615A_OFFICE_READY.zip` to a short local path.
+2. In Workbench, create a **VxWorks Downloadable Kernel Module** project (not RTP)
+   on platform **vxworks/24.03** with **CORTEX_A72 / ARM64** and **LLVM 17.0.6.1**.
+   Use the **same VSB and BSP as the running board image**. Remove any
+   wizard-generated sample source.
+3. **Build options.** Copy them from `BUILD_OPTIONS.txt`:
+
+   ```text
+   -std=c++17  -g  -O0  -fexceptions  -frtti  -include arinc_support/BuildConfig.hpp
+
+   Include directories:  include   src/lib   src/workbench
+                         src/app/arinc_615a_unit_test/arinc_615a_test_tha
+   ```
+
+4. **Build input.** Compile only `src/`. Exclude `include/`, `tests/` and the
+   top-level `workbench/`. `SOURCES.txt` in the package is the exact list of
+   129 files.
+5. **Build Debug.** Keep the first build log word for word if anything fails;
+   `START_HERE.md` §6 lists the likely first-build errors and their fixes.
+
+> [!WARNING]
+> Build with `-std=c++17`, **not** C++20. The 24.03 LLVM 17 runtime does not
+> provide the C++20 library features, and the code deliberately avoids them.
+
+Full walkthrough: [`workbench/START_HERE.md`](workbench/START_HERE.md).
+
+---
+
+## Runtime — load and run on the board
+
+Type these in the kernel shell, at the `->` prompt.
+
+### 1. Load and self-test
+
+```c
+-> ld < /tgtsvr/<path-below-tgtsvr-root>/ARINC615A.out   /* or Workbench: Download */
+-> lkup "arinc615a"                                      /* 7 entry points listed */
+-> arinc615aSelfTest
+ARINC self-test PASS (codecs and SHA256; network/storage tested separately)
+value = 0 = 0x0
+```
+
+The load must report **no unresolved symbols**.
+
+### 2. Prepare the test root and start the target
+
+```c
+-> devs                                   /* confirm /sd0a is mounted */
+-> arinc615aPrepareTest "/sd0a/arinc_test"
+ARINC test prepared. Start the loader with config /sd0a/arinc_test/test-config.json
+-> taskSpawn("tArinc", 100, 0x01000000, 0x100000, arinc615aRun, "/sd0a/arinc_test/test-config.json")
+-> i                                      /* tArinc is PEND, waiting on the network */
+```
+
+`0x01000000` is `VX_FP_TASK`, and `0x100000` gives the task a 1 MiB stack.
+`arinc615aRun` blocks, so it always runs in its own task.
+
+### 3. Stop, restart, unload
+
+```c
+-> arinc615aStop                          /* returns 1 = stop queued */
+-> i                                      /* tArinc has exited */
+-> unld "ARINC615A.out"                   /* never while tArinc exists */
+```
+
+### Lifecycle
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Loaded: ld < ARINC615A.out
+    Loaded --> Loaded: arinc615aSelfTest → 0
+    Loaded --> Prepared: arinc615aPrepareTest root
+    Prepared --> Serving: taskSpawn … arinc615aRun
+    Serving --> Serving: FIND · Information · Upload · Downloads
+    Serving --> Stopped: arinc615aStop
+    Stopped --> Serving: taskSpawn again
+    Stopped --> [*]: unld
+    Serving --> Serving: second arinc615aRun rejected
+```
+
+### Configuration
+
+`arinc615aRun` reads a JSON file. The sample [`target-config.json`](workbench/target-config.json)
+enables every operation:
+
+```json
+{
+  "version": "Arinc615a34",
+  "arinc_615a":      { "local_tftp_address": "0.0.0.0", "tftp": { "port": 59, "timeout": 3, "retries": 3 } },
+  "arinc_615a_find": { "local_find_address": "0.0.0.0", "find_port": 1001 },
+  "targets_configuration": [{
+    "target_id": "ARINC_1",
+    "information_operation":               { "enabled": true, "...": "hardware + part numbers" },
+    "upload_operation":                    { "enabled": true, "directory": "/sd0a/ARINC/upload" },
+    "media_defined_download_operation":    { "enabled": true, "directories": { "directory": "/sd0a/ARINC/download" } },
+    "operator_defined_download_operation": { "enabled": true, "directories": { "directory": "/sd0a/ARINC/download" } }
+  }]
+}
+```
+
+Replace the demo part numbers with real hardware data, and point the
+directories at **target** paths, not Windows paths.
+
+---
+
+## Test procedure
+
+Testing is layered. Each layer proves something the one before cannot, and the
+last two are run against the board itself.
+
+```mermaid
+flowchart TB
+    L1["<b>1 · Host regression</b><br/>229 cases · 1,706 assertions<br/><i>protocol logic, codecs, runtime</i>"]
+    L2["<b>2 · VxWorks preflight</b><br/>129/129 files compiled with __VXWORKS__<br/><i>Asio config · m_data · include chain</i>"]
+    L3["<b>3 · Image audit and dependency audit</b><br/><i>every external symbol vs the office VSB/VIP</i>"]
+    L4["<b>4 · Protocol peer on the board</b><br/>vxworks_target_test.py · 9 checks<br/><i>independent implementation + negative tests</i>"]
+    L5["<b>5 · Real data loader on the board</b><br/>cli_acceptance.ps1 · 7 checks<br/><i>ARINC 615A CLI Tool Suite</i>"]
+    L1 --> L2 --> L3 --> L4 --> L5
+
+    classDef host fill:#1F6FEB,stroke:#0D419D,color:#fff
+    classDef board fill:#238636,stroke:#116329,color:#fff
+    class L1,L2,L3 host
+    class L4,L5 board
+```
+
+### Layer 1 — Host build and offline verification
+
+Any Linux or WSL machine with a C++17 compiler, CMake 3.24+, Ninja and Python 3.
+Nothing is downloaded: Boost is unpacked from the bundled archive and checked
+against its SHA-256.
+
+```bash
 cmake -S . -B build -G Ninja -DARINC_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ctest --test-dir build --output-on-failure
-cmake --build build --target arinc_target_audit
-python3 tools/prepare_office.py --build build \
-  --source-commit "$(git rev-parse HEAD)" \
-  --output delivery/ARINC615A_OFFICE_READY
 ```
 
-The final packaging command requires a new destination (it refuses overwrites).
-Boost is extracted locally with a verified SHA256, without downloading anything.
-The generated handoff contains expanded headers and metadata: Python, CMake and
-Git are not required for its native managed Workbench DKM build.
-For an alternative static-library cross-build, see [VxWorksDKM.md](VxWorksDKM.md).
+```text
+1/3 Test #2: arinc_self_test ..................   Passed
+2/3 Test #1: arinc_regression .................   Passed
+3/3 Test #3: arinc_network_transfers ..........   Passed
+100% tests passed, 0 tests failed out of 3
+```
 
-## Historical upstream documentation
+`arinc_regression` runs 229 test cases with 1,706 assertions (see
+`build/Testing/Temporary/LastTest.log`).
 
-The following describes the original desktop suite, **not the active target
-build**. Its GUI/dependency-manager presets remain only as historical material;
-do not use them for the offline target. Target instructions above take precedence.
+### Layer 2 — VxWorks preflight
 
-This projects provides libraries and application implementing the ARINC 615A Data Loading Protocol.
+Compiles every production file with `__VXWORKS__` and `_WRS_KERNEL` defined,
+against stub SDK headers. The stub `sockLib.h` defines the real `m_data` macro, so
+a missing fix fails here, not in the office.
 
-The ARINC 615A is a standard used in the aviation industry for the transfer of software and data between avionics
-systems.
-It defines the format and structure of messages exchanged between the systems, as well as the procedures for initiating
-and terminating transfers.
-The protocol includes error detection and correction mechanisms to ensure data integrity.
-The ARINC 615A Data Loading Protocol is used by avionics equipment for:
- - Reporting Equipment version information (Part Numbers, Versions, etc.),
- - Software/ Data Upload (SW Updates), and
- - Software/ Data Download.
+```bash
+cmake --build build --target arinc_vxworks_preflight
+```
 
-## Key Features
- - Library for handling ARINC 615A data loader protocol Supplement 2, 3, and 4
- - Qt Libraries providing widgets for software loading operations
- - Applications implementing:
-   - Data loading protocol via CLI,
-   - Data loading protocol via GUI, and
-   - Example Target Data Loader Application.
+```text
+VxWorks-branch syntax check: 129/129 clean
+Boost platform profile: VxWorks 7
+Boost.Asio reactor:     select
+Asio local sockets:     disabled
+Asio interrupter:       socket
+Asio include chain, VxWorks (__VXWORKS__)  -> selectLib_h
+VxWorks preflight passed.
+```
 
-## Dependencies
-First level dependencies:
-- [Helper Library](https://git.thomas-vogt.de/thomas-vogt/helper)
-- [Qt Icon Resources](https://git.thomas-vogt.de/thomas-vogt/qt_icon_resources)
-- [ARINC 645 Tool Suite](https://git.thomas-vogt.de/thomas-vogt/arinc_645)
-- [ARINC 665 Tool Suite](https://git.thomas-vogt.de/thomas-vogt/arinc_665)
-- [TFTP Library](https://git.thomas-vogt.de/thomas-vogt/tftp)
-- [Commands Library](https://git.thomas-vogt.de/thomas-vogt/commands)
-- [Boost Libraries](https://www.boost.org/)
-- libxml++
-- [spdlog](https://github.com/gabime/spdlog)
-- Optionally [Qt 6](https://www.qt.io/)
+### Layer 3 — Dependency audit
 
-## Building
-The library uses [CMake](https://cmake.org/) to handle build configuration.
-CMake Presets are provided to generate builds compiling with:
-- GNU GCC,
-- Clang, and
-- MSVC.
+```bash
+cmake --build build --target arinc_target_audit
+```
 
-For each compiler and environment, the following variants can be built:
-- Static debug,
-- Static release,
-- Shared debug, and
-- Shared release.
+Checks that no excluded library (Qt, Helper, program_options, ARINC 649 and so
+on) leaks into the target archives, and records every header dependency.
 
-Test Environments are:
-- Linux,
-- Windows MinGW, and
-- Windows MSVC.
+### Layer 4 — Protocol peer against the board
 
-**Note:**
-For managing dependencies, i.e. Windows MSVC, a VCPKG configuration is provided.
+[`tests/vxworks_target_test.py`](tests/vxworks_target_test.py) is an independent
+UDP/TFTP peer written against the standard, not against this code. It uses only
+the Python standard library. With `tArinc` running (see [Runtime](#runtime--load-and-run-on-the-board)):
 
-## License
-This project is licensed under the terms of the [*Mozilla Public License Version 2.0* (MPL)](LICENSE).
+```bat
+ping 192.168.1.50
+python tests\vxworks_target_test.py --target 192.168.1.50
+```
 
-## References
-- ARINC 615A-4 - Software Data Loader Using Ethernet Interface
-- ARINC 665-5 - Loadable Software Standards
-- ARINC 645-1 - Common Terminology and Functions for Software Distribution and Loading
+| ID | Check |
+| --- | --- |
+| T01 | FIND answered with hardware ID `ARINC` |
+| T02 | Information: `LCL` has `DEMO-PN`/`TEST001`; one DATA packet is **dropped on purpose** and must be retransmitted |
+| T03 | Operator Defined Download: listing, selection, 4097-byte payload byte-identical |
+| T04 | Media Defined Download: payload byte-identical, completed status |
+| T05 | Upload: ARINC 665 header + payload, completed |
+| T06 | Malformed FIND ignored; the next FIND is answered |
+| T07 | Empty, malformed and **path-traversal** load headers rejected (`0x1003`); target keeps serving |
+| T08 | Corrupt and truncated payloads rejected; the next valid upload succeeds |
+| T09 | `--soak N`: N upload + download cycles, for memory checks with `memShow` |
 
-## Protocol Changes
-This section only contains changes within the standards, which are respected within this library.
+```text
+PASS: T01 FIND answered by 192.168.1.50
+PASS: T02 Information: LCL has DEMO-PN/TEST001 (one lost DATA packet retransmitted)
+…
+ALL 9 CHECKS PASSED in 7.5 s. Now run on the target: arinc615aVerifyTestUpload "<root>"
+```
 
-### ARINC 615A-1
-- Protocol Filenames are all uppercase
-- Explicit state UDP Port 59 for data loading
-- Max Value for WAIT Message is 65535 (seconds)
-- Host DL shall implement _TFTP block size option_ - THA may implement _TFTP block size option_
-- Transfer size option shall not be used
-- Definition of block number overflow
-- timeout option shall not be used
-- Limit text fields to 255/ 80 characters
-- Set Protocol version to A2
-- Add exception timer to status files
-- Add reference to Sorcerer’s Apprentice Syndrome
-### ARINC 615A-2
-- Rename SNIP to FIND Protocol (FIND Identification of Network Devices)
-- FIND is optional before transfer operation
-- Set protocol version to A3
-- Status description ignored for 0001 and 1002
-- Change LCL file
-  - Add multiple Target Hardware (Target Hardware Code and Serial Number)
-  - For Part Numbers add Amendment
-- Precisely describe exception timer
-- Precisely describe estimated time
-- Description length can be longer than actual text (null-terminated)
-### ARINC 615A-3
-- Set protocol version to A3
-- TFTP Transfer size option is optional
-- TFTP Timeout option is optional
-- Add _Part Number Option_ (but copy-paste error and not usable)
-- Add _Checksum Option_
-- Add _Port Option_
-- Add Status 0004 (in progress with status description)
-### ARINC 615A-4
-- _Part Number Option_ is described correctly
-- _Checksum Option_ description is updated
+Then, on the board:
+
+```c
+-> arinc615aVerifyTestUpload "/sd0a/arinc_test"
+ARINC upload check PASS (payload byte-identical, no path-traversal file)
+```
+
+Options: `--find-port`, `--tftp-port`, `--target-id`, `--thw-id`, `--serial`,
+`--timeout`, `--soak N`, `--bind <PC-IP>`.
+
+### Layer 5 — Data loader CLI acceptance
+
+The decisive test: the **real data loader**, `arinc_615a_operation.exe` from the
+[ARINC 615A CLI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite),
+against the target. [`tests/cli_acceptance.ps1`](tests/cli_acceptance.ps1) runs
+every operation and builds an ARINC 665 media set for the upload.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as cli_acceptance.ps1
+    participant C as arinc_615a_operation.exe
+    participant T as Target (tArinc)
+
+    S->>C: -c Find
+    C->>T: FIND IRQ · UDP 1001
+    T-->>C: IAN · ARINC_1
+    S->>C: -c Information
+    C->>T: LCI → accepted
+    T->>C: LCL · hardware + DEMO-PN
+    S->>C: -c OpDownload · -c MedDownload
+    T->>C: LNL list · payload.bin · LNS completed
+    Note over S: payload.bin compared byte for byte
+    S->>S: arinc_665_media_set_compiler → DEMO-MS
+    S->>C: -c AdhocUpload DEMOLOAD.LUH
+    C->>T: LUI · LUR
+    T->>C: fetch DEMOLOAD.LUH + payload.bin
+    T-->>C: LUS completed (CRC checked)
+    S->>C: -c Find (still alive?)
+```
+
+#### One-time CLI setup
+
+> [!WARNING]
+> **Apply the exit-hang patch first.** In the published CLI suite, the command
+> registry is declared before the `io_context`, so it is destroyed after it. On
+> Windows the process then **hangs at exit after every TFTP operation**, and its
+> buffered results are never printed. The one-line reorder is in
+> [`tests/cli/arinc_615a_operation-exit-hang.patch`](tests/cli/arinc_615a_operation-exit-hang.patch).
+
+```bat
+cd <cli-suite>
+git apply <this-repo>\tests\cli\arinc_615a_operation-exit-hang.patch
+build.bat --no-run
+cmake --build <cli-build> --target arinc_665_media_set_compiler
+```
+
+Let the CLI receive UDP from the board. Run this once, in an elevated `cmd`:
+
+```bat
+netsh advfirewall firewall add rule name="ARINC615A loader CLI (UDP in)" dir=in action=allow protocol=UDP profile=private program="<cli-build>\app\arinc_615a_operation\arinc_615a_operation.exe"
+```
+
+#### Run
+
+```bat
+powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.1.50 -CliBuild <cli-build>
+```
+
+```text
+PASS: C01 FIND answered by 192.168.1.50 with target ID ARINC_1
+PASS: C02 Information: integrity valid, part number DEMO-PN, completed
+PASS: C03 Operator Defined Download: file list received, payload.bin byte-identical, completed
+PASS: C04 Media Defined Download: payload.bin byte-identical, completed
+PASS: C05 ARINC 665 media set DEMO-MS compiled
+PASS: C06 Adhoc Upload of DEMOLOAD.LUH (DEMO-PN): load and operation completed
+PASS: C07 Target still answers FIND after all operations
+
+7 passed, 0 failed.
+```
+
+Finish with `arinc615aVerifyTestUpload "/sd0a/arinc_test"` on the board.
+
+#### Running the CLI by hand
+
+```bat
+set PATH=C:\vi\x64-windows\bin;%PATH%      REM suite scripts; for a debug build use C:\vi\x64-windows\debug\bin
+arinc_615a_operation.exe -c Find        --target-address=192.168.1.50
+arinc_615a_operation.exe -c Information --target-address=192.168.1.50 --target-id=ARINC_1 --port-option
+arinc_615a_operation.exe -c OpDownload  --target-address=192.168.1.50 --target-id=ARINC_1 --port-option --file=payload.bin
+```
+
+> [!TIP]
+> Always use `--option=value`. Several short options clash (`-l`, `-t`), and
+> `--target-address` followed by a space swallows the next argument. A missing
+> DLL shows up as exit code `0xC0000135`; put the vcpkg `bin` folder on `PATH`.
+> `cli_acceptance.ps1` does this itself. It finds `C:\vi` or `<cli-build>\vcpkg_installed`
+> and picks debug or release DLLs from the exe's imports; override with `-VcpkgInstalled`.
+
+### Lifecycle and resource checks
+
+```c
+-> arinc615aStop                  /* then restart 3 times; each cycle must pass layer 4 */
+-> taskSpawn("tArinc2", …)        /* a second runtime must be rejected */
+-> checkStack "tArinc"            /* high-water mark well below 1 MiB, no OVERFLOW */
+-> memShow                        /* before and after --soak 50: no downward trend */
+```
+
+Every step, with expected results and a results sheet to fill in, is in
+[`workbench/VXWORKS_TEST_PROCEDURE.md`](workbench/VXWORKS_TEST_PROCEDURE.md).
+Call the port board-validated only when all of its rows pass.
+
+---
+
+## Rehearse without a board
+
+The same entry points build into a host program, `arinc_host_runner`, so the
+whole procedure can run on a PC (Linux or WSL) before any board time. Ports
+below 1024 need root on Linux, so the rehearsal moves them:
+
+```bash
+./build/arinc_host_runner --prepare /tmp/arinc
+sed -i 's/"port": 59,/"port": 10059,/; s/"find_port": 1001/"find_port": 11001/' /tmp/arinc/test-config.json
+./build/arinc_host_runner /tmp/arinc/test-config.json        # Enter stops it
+```
+
+From Windows, against the WSL IP (`wsl hostname -I`):
+
+```bat
+python tests\vxworks_target_test.py --target <wsl-ip> --find-port 11001 --tftp-port 10059 --soak 20
+powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target <wsl-ip> -CliBuild <cli-build> -FindPort 11001 -TftpPort 10059
+```
+
+To test the **VxWorks code path** on the host, add
+`-DCMAKE_CXX_FLAGS=-DARINC_ASIO_SOCKET_SELECT_INTERRUPTER=1` to the CMake configure.
+
+> A rehearsal pass proves the procedure and the protocol, not VxWorks. The board
+> run is still required.
+
+---
+
+## Test results
+
+Latest run: 25–26 September 2026, commit `f6dd964`.
+
+| Layer | Environment | Result |
+| --- | --- | --- |
+| Host regression | WSL Ubuntu · GCC 15.2 · CMake 4.2 | ✅ 229/229 cases · 1,706 assertions |
+| Package self-test + network suite | Fresh unzip of the handoff, normal and VxWorks-path builds | ✅ 2/2 · 2/2 |
+| VxWorks preflight | `__VXWORKS__` + stub SDK | ✅ 129/129 · socket interrupter · `selectLib.h` |
+| Dependency audit | `arinc_target_audit` | ✅ passed |
+| Unresolvable-on-image symbols | VxWorks-path build vs office image | ✅ none (`pipe`, `eventfd`, `socketpair`, `pthread_rwlock` all gone) |
+| Protocol peer | Windows Python → target in WSL | ✅ 9/9 including 20-cycle soak |
+| **Real data loader** | **ARINC 615A CLI Tool Suite (MSVC) → target in WSL** | ✅ **7/7** · upload verified on target |
+| Workbench DKM build | Office SDK | ⏳ pending, in the office |
+| Board run (layers 4 and 5) | LS1028A board | ⏳ pending, in the office |
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `Select a VxWorks Downloadable Kernel Module project` | The project is an RTP. Recreate it as a DKM |
+| `sys/poll.h` not found | The bundled Asio overlay was overwritten. Restore `include/boost/asio/detail/` from the package |
+| Unresolved `pipe` at `ld` | The interrupter patch is missing: check `BuildConfig.hpp` and `select_interrupter.hpp` (or add `INCLUDE_POSIX_PIPES` to the image) |
+| `<filesystem>` not found | The VSB lacks C++17 filesystem support; this is a platform configuration item |
+| FIND times out | Wrong IP or subnet (`ping` first), PC firewall, `tArinc` not running (`i`), or UDP 1001 already in use |
+| FIND works, transfers time out | The PC firewall is dropping the board's TFTP transfers back to the loader. Add the firewall rule, or use `--bind <PC-IP>` on a multi-homed PC |
+| Valid upload rejected with `0x1003` | The upload folder is not writable. Check `devs`, `ls "/sd0a/arinc_test/upload"` and free space |
+| `tArinc` is `SUSPEND` | It crashed. Check `checkStack` and `tt tArinc`; raise the stack to `0x200000` and keep `VX_FP_TASK` |
+| CLI never exits | Apply `tests/cli/arinc_615a_operation-exit-hang.patch` to the CLI suite |
+| CLI exits with `0xC0000135` | vcpkg DLLs are not on `PATH` |
+
+---
+
+## Repository layout
+
+```
+.
+├── workbench/                     Workbench-facing sources and docs
+│   ├── EntryPoints.cpp/.h         arinc615aSelfTest · Demo · Run · Stop
+│   ├── TestSupport.cpp            arinc615aPrepareTest · VerifyTestUpload · WriteFixtures
+│   ├── START_HERE.md              office build guide
+│   ├── VXWORKS_TEST_PROCEDURE.md  board acceptance procedure + results sheet
+│   ├── BUILD_OPTIONS.txt          compiler flags and include paths for the DKM
+│   └── target-config.json         sample runtime configuration
+├── lib/
+│   ├── arinc_615a/                protocol library (target, find, files, tftp options)
+│   ├── tftp/                      TFTP client/server
+│   ├── arinc_checksum/            CRC and hash check values
+│   └── arinc_support/             BuildConfig.hpp · BoostVxWorks.hpp · utilities
+├── app/arinc_615a_unit_test/arinc_615a_test_tha/   THA application (JSON → operations)
+├── third_party/
+│   ├── arinc_665/                 ARINC 665 load format (bundled)
+│   ├── boost_1_88_0_headers.tar.gz   Boost, SHA-256 verified, unpacked offline
+│   └── boost_vxworks_overlay/     VxWorks fixes to Boost.Asio (poll · socketpair · m_data)
+├── tests/
+│   ├── vxworks_target_test.py     layer 4 · protocol peer · 9 checks
+│   ├── cli_acceptance.ps1         layer 5 · data loader CLI · 7 checks
+│   ├── cli/                       exit-hang patch for the CLI suite
+│   ├── vxworks_preflight/         layer 2 · VxWorks-branch compile check
+│   └── network_smoke.py …         layer 1 · host suites
+├── tools/prepare_office.py        builds the Workbench handoff package
+├── delivery/ARINC615A_OFFICE_READY.zip   ready-to-build handoff for the office
+├── VALIDATION.md                  what has been proven, and how
+└── docs/UPSTREAM_README.md        original upstream README (desktop suite)
+```
+
+### Regenerating the handoff
+
+```bash
+mkdir -p /tmp/src && git -c core.autocrlf=false archive HEAD | tar -x -C /tmp/src && cd /tmp/src
+cmake -S . -B build -G Ninja -DARINC_BUILD_TESTS=ON && cmake --build build
+python3 tools/prepare_office.py --build build --source-commit "$(git -C <repo> rev-parse HEAD)" \
+  --output /tmp/pkg/ARINC615A_OFFICE_READY
+```
+
+The generator refuses to overwrite, writes `SHA256SUMS.txt` and `BUILD_INFO.txt`,
+and zips the result. Use the `archive` step with `core.autocrlf=false`, or Windows
+line endings leak into every file.
+
+---
+
+## Documentation
+
+| Document | What's in it |
+| --- | --- |
+| **[workbench/START_HERE.md](workbench/START_HERE.md)** | **Start here in the office.** Workbench project setup, build options, first-build troubleshooting, runtime and acceptance checklist |
+| **[workbench/VXWORKS_TEST_PROCEDURE.md](workbench/VXWORKS_TEST_PROCEDURE.md)** | Phases A–I on the board, with exact commands, expected output, troubleshooting and a results sheet |
+| **[VALIDATION.md](VALIDATION.md)** | What has been verified, on what, and what is still open |
+| **[tests/vxworks_preflight/README.md](tests/vxworks_preflight/README.md)** | What the VxWorks preflight checks and why |
+| **[third_party/DEPENDENCIES.md](third_party/DEPENDENCIES.md)** | Bundled dependencies and their licences |
+| **[VxWorksDKM.md](VxWorksDKM.md)** | Alternative static-library cross-build |
+| **[docs/UPSTREAM_README.md](docs/UPSTREAM_README.md)** | The original upstream README for the desktop suite |
+
+**Related:** [ARINC 615A CLI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite)
+(the data loader used to test this target) ·
+[ARINC 615A GUI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-gui-tool-suite)
+
+---
+
+## Protocol background
+
+The library implements **ARINC 615A Supplements 2, 3 and 4**. The target
+announces its protocol version, and the loader adapts to it.
+
+| Supplement | Notable changes |
+| --- | --- |
+| **615A-1** | Uppercase protocol filenames · UDP port 59 · block-size option mandatory for the host · exception timer in status files |
+| **615A-2** | SNIP renamed **FIND** and made optional · protocol version `A3` · `LCL` gains multiple target hardware and part-number amendments |
+| **615A-3** | Transfer-size and timeout options optional · **checksum** and **port** options · status `0004` |
+| **615A-4** | Part-number option corrected · checksum option description updated |
+
+**References:** ARINC 615A-4 (Software Data Loader Using Ethernet Interface) ·
+ARINC 665-5 (Loadable Software Standards) · ARINC 645-1 (Common Terminology and
+Functions for Software Distribution and Loading).
+
+---
+
+## Licence
+
+[![Licence](https://img.shields.io/badge/Licence-MPL--2.0-A6CE39?style=flat-square&logo=mozilla&logoColor=white)](LICENSE)
+
+Mozilla Public License 2.0. Based on the ARINC 615A Tool Suite © Thomas Vogt,
+<https://git.thomas-vogt.de/thomas-vogt/arinc_615a>. The MPL requires this licence
+and its attribution to be kept in redistributions. Bundled Boost is under the
+Boost Software License 1.0; see [`third_party_licenses/`](third_party_licenses).
+
+ARINC® is a trademark of its respective owner. This project implements the
+publicly documented ARINC 615A protocol and is **not affiliated with, endorsed
+by, or a product of ARINC**. The ARINC standards themselves are not
+redistributed here.

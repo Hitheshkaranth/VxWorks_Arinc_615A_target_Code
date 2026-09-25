@@ -283,7 +283,10 @@ operation and builds an ARINC 665 media set for the upload.
    exits after Information, Download and Upload operations. Its command objects
    outlive the `io_context`, which hangs process exit on Windows. The results are
    printed but stay in the buffer, so they are never shown.
-2. From `<EX>`, run `verify-cli.bat` to rebuild the CLI.
+2. From `<EX>`, run `verify-cli.bat` to rebuild the CLI. With the published
+   [ARINC 615A CLI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite)
+   instead, run `git apply` with the patch, then `build.bat --no-run`. Its DLLs are
+   in `C:\vi\x64-windows\...`, and `cli_acceptance.ps1` finds them there.
 3. Build the ARINC 665 media set compiler in the same build tree:
 
 ```bat

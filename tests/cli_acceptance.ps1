@@ -24,7 +24,10 @@ param(
   [int] $FindPort = 1001,
   [int] $TftpPort = 59,
   [int] $TimeoutSeconds = 90,
-  [string] $WorkDir = (Join-Path $env:TEMP 'arinc_cli_acceptance')
+  [string] $WorkDir = (Join-Path $env:TEMP 'arinc_cli_acceptance'),
+  # vcpkg installed tree holding the CLI's DLLs. Default: <CliBuild>\vcpkg_installed
+  # (in-tree builds), then C:\vi (arinc-615a-cli-tool-suite scripts).
+  [string] $VcpkgInstalled = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,8 +36,16 @@ $compiler = Join-Path $CliBuild '_deps\arinc_665-build\app\arinc_665_media_set_c
 foreach ($tool in $cli, $compiler) {
   if (-not (Test-Path $tool)) { throw "Missing $tool (build it, see VXWORKS_TEST_PROCEDURE.md Phase I)" }
 }
-# The debug CLI needs Boost.Program_options, fmt and libxml++ from vcpkg.
-$env:PATH = (Join-Path $CliBuild 'vcpkg_installed\x64-windows\debug\bin') + ';' + $env:PATH
+# The CLI links Boost.Program_options, fmt and libxml++ dynamically, and vcpkg
+# does not copy them beside the exe. Never mix debug DLLs into a release build.
+$roots = @($VcpkgInstalled, (Join-Path $CliBuild 'vcpkg_installed'), 'C:\vi') | Where-Object { $_ -and (Test-Path $_) }
+if (-not $roots) { throw 'vcpkg installed tree not found; pass -VcpkgInstalled <dir>' }
+# A debug CLI imports fmtd.dll; the build folder name does not always say so.
+$isDebug = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($cli)).Contains('fmtd.dll')
+$flavour = if ($isDebug) { 'x64-windows\debug\bin' } else { 'x64-windows\bin' }
+$dllDir = Join-Path $roots[0] $flavour
+if (-not (Test-Path $dllDir)) { throw "Missing $dllDir; pass -VcpkgInstalled <dir>" }
+$env:PATH = $dllDir + ';' + $env:PATH
 
 if (Test-Path $WorkDir) { Remove-Item $WorkDir -Recurse -Force }
 New-Item -ItemType Directory -Path $WorkDir | Out-Null
