@@ -1,6 +1,10 @@
 <div align="center">
 
-<img src="docs/images/arinc-logo.webp" alt="ARINC" width="300">
+<p>
+  <img src="docs/images/arinc-logo.webp" alt="ARINC" height="44">
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/vxworks-logo.png" alt="VxWorks" height="44">
+</p>
 
 # ARINC 615A Target for VxWorks 24.03
 
@@ -793,6 +797,8 @@ netsh advfirewall firewall add rule name="ARINC615A loader CLI (UDP in)" dir=in 
 powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.1.50 -CliBuild <cli-build>
 ```
 
+Expected output:
+
 ```text
 PASS: C01 FIND answered by 192.168.1.50 with target ID ARINC_1
 PASS: C02 Information: integrity valid, part number DEMO-PN, completed
@@ -806,6 +812,69 @@ PASS: C07 Target still answers FIND after all operations
 ```
 
 Finish with `arinc615aVerifyTestUpload "/sd0a/arinc_test"` on the board.
+
+#### How it was actually tested, and the result
+
+The target has been run against the CLI Tool Suite's `arinc_615a_operation.exe`,
+but **not yet on the board**. The target application ran on the same PC in WSL:
+
+| | Used in the test run |
+| --- | --- |
+| Data loader | `arinc_615a_operation.exe`, MSVC 2022 debug build from the local ARINC-EXAMPLE tree. This is the same `arinc_615a_operation` source the [CLI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite) publishes (the patch applies unchanged to both), **with the exit-hang patch** applied |
+| Target | `arinc_host_runner` from the freshly unzipped handoff, built with the VxWorks wake-up path (`-DARINC_ASIO_SOCKET_SELECT_INTERRUPTER=1`), running the same `arinc615aPrepareTest` + `arinc615aRun` code as the DKM |
+| Network | Windows 11 → WSL 2 Ubuntu, target at `172.20.60.83`, FIND port `11001`, TFTP port `10059` (Linux needs root for ports below 1024) |
+| Firewall | Rule letting the CLI receive UDP from the WSL range |
+
+The steps, exactly as run:
+
+```bash
+# 1. WSL: start the target
+./build_sock/arinc_host_runner --prepare /tmp/arinc_cli
+sed -i 's/"port": 59,/"port": 10059,/; s/"find_port": 1001/"find_port": 11001/' /tmp/arinc_cli/test-config.json
+./build_sock/arinc_host_runner /tmp/arinc_cli/test-config.json
+```
+
+```bat
+REM 2. Windows: run the loader against it
+powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 172.20.60.83 -CliBuild <cli-build> -FindPort 11001 -TftpPort 10059
+```
+
+```bash
+# 3. WSL: check what the target stored
+./build_sock/arinc_host_runner --verify /tmp/arinc_cli
+```
+
+The result:
+
+```text
+PASS: C01 FIND answered by 172.20.60.83 with target ID ARINC_1
+PASS: C02 Information: integrity valid, part number DEMO-PN, completed
+PASS: C03 Operator Defined Download: file list received, payload.bin byte-identical, completed
+PASS: C04 Media Defined Download: payload.bin byte-identical, completed
+PASS: C05 ARINC 665 media set DEMO-MS compiled
+PASS: C06 Adhoc Upload of DEMOLOAD.LUH (DEMO-PN): load and operation completed
+PASS: C07 Target still answers FIND after all operations
+
+7 passed, 0 failed.
+
+ARINC upload check PASS (payload byte-identical, no path-traversal file)
+```
+
+What the CLI reported for each operation (abridged):
+
+```text
+-c Find          Response from 172.20.60.83: THW ID 'ARINC' · THW Type Name 'THA' · ** Target ID ** 'ARINC_1'
+-c Information   Initialisation Code: Operation Accepted (0001) · Information Integrity: Valid
+                 Literal Name 'ARINC 615A Test' · Serial Number 'TEST001' · Part Number 'DEMO-PN'
+                 Final Status Code: Operation completed (0003)
+-c OpDownload    Received File List: demo.LUH 104 · empty.LUH 62 · payload.bin 4097 · traversal.LUH 106
+                 payload.bin 0003 · demo.LUH 0003 · Final Status Code: Operation completed (0003)
+-c MedDownload   payload.bin: Transfer OK · 4097 bytes · Final Status Code: Operation completed (0003)
+-c AdhocUpload   DEMOLOAD.LUH · Part Number 'DEMO-PN' · Ratio 100% · Final Status Code: Operation completed (0003)
+```
+
+The same run with the unpatched CLI finished every operation on the wire, then
+hung at exit without printing a result. That is how the exit-hang bug was found.
 
 #### Running the CLI by hand
 
@@ -997,3 +1066,8 @@ ARINC® is a trademark of its respective owner. This project implements the
 publicly documented ARINC 615A protocol and is **not affiliated with, endorsed
 by, or a product of ARINC**. The ARINC standards themselves are not
 redistributed here.
+
+VxWorks® and Wind River® are trademarks of Wind River Systems, Inc. The VxWorks
+wordmark in the banner is a plain typographic rendering that only identifies the
+target platform. This project is not affiliated with or endorsed by Wind River,
+and contains no Wind River SDK code.
