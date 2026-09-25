@@ -21,8 +21,8 @@
         "part_numbers": [{"part_number": "DEMO-PN", "amendment": "", "part_designation": "Demo software"}]
       }}
     },
-    "upload_operation": {"enabled": true, "directory": "/ram0/ARINC/upload", "checksum_option": true},
-    "media_defined_download_operation": {"enabled": true, "directories": {"directory": "/ram0/ARINC/download"}},
-    "operator_defined_download_operation": {"enabled": true, "directories": {"directory": "/ram0/ARINC/download"}}
+    "upload_operation": {"enabled": true, "directory": "/sd0a/ARINC/upload", "checksum_option": true},
+    "media_defined_download_operation": {"enabled": true, "directories": {"directory": "/sd0a/ARINC/download"}},
+    "operator_defined_download_operation": {"enabled": true, "directories": {"directory": "/sd0a/ARINC/download"}}
   }]
 }

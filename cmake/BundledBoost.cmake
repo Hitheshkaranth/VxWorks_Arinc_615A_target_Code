@@ -11,6 +11,13 @@ function(arinc_extract_boost source_root destination)
     file(ARCHIVE_EXTRACT INPUT "${archive}" DESTINATION "${destination}")
   endif()
 
+  # Whole-file VxWorks fixes from the office build (poll() shim over select(),
+  # socketpair() over TCP loopback, #undef of the mbuf.h m_data macro). They
+  # are copied over the pristine headers first; socket_types.hpp already holds
+  # the selectLib.h branch, so the probe patch below recognises it and skips.
+  file(COPY "${source_root}/third_party/boost_vxworks_overlay/boost"
+       DESTINATION "${destination}")
+
   # Boost.Asio 1.88 assumes every non-Windows, non-Symbian platform has
   # sys/poll.h. VxWorks 24.03 uses the select reactor for this target and does
   # not ship that header. Keep the upstream header unchanged in the archive,
@@ -28,4 +35,34 @@ function(arinc_extract_boost source_root destination)
     string(REPLACE "${poll_probe}" "${vxworks_probe}" socket_types_content "${socket_types_content}")
     file(WRITE "${socket_types}" "${socket_types_content}")
   endif()
+
+  # On other POSIX platforms Asio wakes the select reactor through pipe(),
+  # which a VxWorks image without INCLUDE_POSIX_PIPES cannot resolve at DKM
+  # load. ARINC_ASIO_SOCKET_SELECT_INTERRUPTER (set by BuildConfig.hpp for
+  # VxWorks) selects Asio's loopback-socket interrupter, as Cygwin does.
+  set(interrupter_marker "defined(ARINC_ASIO_SOCKET_SELECT_INTERRUPTER)")
+  foreach(header select_interrupter.hpp socket_select_interrupter.hpp impl/socket_select_interrupter.ipp)
+    set(path "${destination}/boost/asio/detail/${header}")
+    file(READ "${path}" content)
+    if(NOT content MATCHES "ARINC_ASIO_SOCKET_SELECT_INTERRUPTER")
+      string(FIND "${content}" "defined(__CYGWIN__)" position)
+      if(position EQUAL -1)
+        message(FATAL_ERROR "Bundled Boost.Asio ${header} has an unexpected layout.")
+      endif()
+      string(REPLACE "defined(__CYGWIN__)" "defined(__CYGWIN__) || ${interrupter_marker}" content "${content}")
+      file(WRITE "${path}" "${content}")
+    endif()
+  endforeach()
+  foreach(header pipe_select_interrupter.hpp impl/pipe_select_interrupter.ipp)
+    set(path "${destination}/boost/asio/detail/${header}")
+    file(READ "${path}" content)
+    if(NOT content MATCHES "ARINC_ASIO_SOCKET_SELECT_INTERRUPTER")
+      string(FIND "${content}" "#if !defined(__CYGWIN__)" position)
+      if(position EQUAL -1)
+        message(FATAL_ERROR "Bundled Boost.Asio ${header} has an unexpected layout.")
+      endif()
+      string(REPLACE "#if !defined(__CYGWIN__)" "#if !defined(__CYGWIN__) && !${interrupter_marker}" content "${content}")
+      file(WRITE "${path}" "${content}")
+    endif()
+  endforeach()
 endfunction()

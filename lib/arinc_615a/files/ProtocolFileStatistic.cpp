@@ -55,7 +55,7 @@ void ProtocolFileStatistic::protocolFile( const Arinc615a::Files::ProtocolFileTy
 
 ProtocolFileStatistic::Statistic ProtocolFileStatistic::statistic() const
 {
-  std::shared_lock lock{ mutex };
+  std::unique_lock lock{ mutex };
   return statisticV;
 }
 

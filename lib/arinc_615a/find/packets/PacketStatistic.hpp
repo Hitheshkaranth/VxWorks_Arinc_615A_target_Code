@@ -17,7 +17,7 @@
 
 #include <iosfwd>
 #include <map>
-#include <shared_mutex>
+#include <mutex>
 #include <string>
 #include <tuple>
 
@@ -98,7 +98,7 @@ class ARINC_615A_EXPORT PacketStatistic
     //! Sent statistic
     Statistic statisticV;
     //! Mutex protecting the access to @p statisticV
-    mutable std::shared_mutex mutex;
+    mutable std::mutex mutex;
 };
 
 /**

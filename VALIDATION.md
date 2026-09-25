@@ -1,5 +1,55 @@
 # Validation record
 
+## Update: 25 September 2026 (Asia/Kolkata)
+
+This supersedes the 23 September handoff. Host evidence only: the Wind River
+compiler, SDK headers and the board were still unavailable, so the office
+Workbench build and `VXWORKS_TEST_PROCEDURE.md` remain the acceptance gate.
+
+### Office image audit
+
+The exported office projects (UVDR_VIP/VSB_20260218, BSP
+`nxp_layerscape_a72_2_0_7_4`, LLVM, CORTEX_A72) were checked against every
+C/POSIX symbol the production graph needs, using the VSB library symbol
+tables and the component definitions (CDF files). Gaps found and resolved in the code:
+
+- `pipe()` needs `INCLUDE_POSIX_PIPES`, absent from the image; the DKM would
+  not have loaded. Asio now wakes its select reactor through its loopback-socket
+  interrupter (`ARINC_ASIO_SOCKET_SELECT_INTERRUPTER`, set by `BuildConfig.hpp`).
+- No `pthread_rwlock_*` exists in the VSB; the three statistics classes use
+  `std::mutex` instead of `std::shared_mutex`.
+- No `poll()` or `socketpair()` in the image and no RAM disk (`/ram0`). The
+  sample config and the board test use `/sd0a`.
+
+### Repaired office Boost fixes
+
+The 24 September hand edits to `socket_types.hpp` and `socket_ops.ipp` in the
+unpacked handoff did not compile on any platform: a stray `#endif` split the
+header's include chain; the poll shim used `nfds_t`, which the VxWorks headers
+included here do not declare; and the socketpair shim called `closesocket()`,
+passed the wrong arguments to `listen`, and hard-coded port 10000. They were also absent
+from the repository, so any regeneration would have dropped them. Both headers
+are now repaired in `third_party/boost_vxworks_overlay`, applied by
+`cmake/BundledBoost.cmake`. The `mbuf.h` `m_data` macro is also removed in
+`BuildConfig.hpp`. `SafeCast.ipp` gained a missing `<cstdint>` include.
+
+### Executed checks (WSL Ubuntu, GCC 15.2, CMake 4.2)
+
+- Clean repository build; 229/229 regression cases, 1,706 assertions.
+- VxWorks preflight: 129/129 translation units clean. The select reactor,
+  socket interrupter and `selectLib.h` chain are confirmed. The stub `sockLib.h` now defines
+  `m_data`; removing the fix makes 8 units fail, so the check is effective.
+- Dependency audit passed (CMake 4 absolute-path fix in `AuditTarget.cmake`).
+- Regenerated handoff, unpacked fresh: clean build and tests, both normally and
+  with the VxWorks interrupter forced on. No `pipe`, `eventfd`, `socketpair` or
+  `pthread_rwlock` references remain.
+- Board procedure rehearsed with the new on-target helpers and
+  `tests/vxworks_target_test.py`, including from Windows Python to a WSL-hosted
+  target: 9/9 checks (FIND, Information with retransmission, both downloads,
+  upload, malformed/rejected inputs, soak), upload verified, clean stop.
+
+## Original record
+
 Date: 23 September 2026 (Asia/Kolkata)
 
 ## Result and scope

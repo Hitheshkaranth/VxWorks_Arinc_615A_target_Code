@@ -27,6 +27,7 @@ add_library(arinc_615a_tha_target STATIC
   "${tha_dir}/arinc_615a_test_tha.cpp"
   "${tha_dir}/ThaC.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/workbench/EntryPoints.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/workbench/TestSupport.cpp"
   "${tha_dir}/DownloadOperationConfiguration.cpp"
   "${tha_dir}/InformationOperationConfiguration.cpp"
   "${tha_dir}/OperationConfiguration.cpp"

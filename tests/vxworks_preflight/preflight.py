@@ -22,11 +22,13 @@ EXPECTED = {
     'BOOST_PLATFORM': 'VxWorks 7',
     'reactor': 'select',
     'local_sockets': 'disabled',
+    'interrupter': 'socket',
 }
 
 CONFIG_PROBE = r'''
 #include <boost/asio.hpp>
 #include <cstdio>
+#include <type_traits>
 int main() {
   std::printf("BOOST_PLATFORM=%s\n", BOOST_PLATFORM);
 #if defined(BOOST_ASIO_HAS_KQUEUE)
@@ -43,6 +45,9 @@ int main() {
 #else
   std::printf("local_sockets=disabled\n");
 #endif
+  // pipe() needs INCLUDE_POSIX_PIPES, which the office image omits.
+  std::printf("interrupter=%s\n", std::is_same<boost::asio::detail::select_interrupter,
+      boost::asio::detail::socket_select_interrupter>::value ? "socket" : "other");
   return 0;
 }
 '''
@@ -61,6 +66,13 @@ def extract_chain(socket_types):
         raise SystemExit('Bundled Boost.Asio socket_types.hpp has an unexpected layout.')
     depth, body = 0, []
     for line in lines[starts[0]:]:
+        # The VxWorks branch also carries the poll() shim's C code; only the
+        # directives decide which header is selected, so skip everything else.
+        # Line continuations of the opening #if are still kept.
+        if not line.lstrip().startswith('#'):
+            if body and body[-1].rstrip().endswith('\\'):
+                body.append(line)
+            continue
         stripped = line.lstrip('# \t')
         if stripped.startswith(('if', 'ifdef', 'ifndef')):
             depth += 1
@@ -149,6 +161,7 @@ def main():
     print('Boost platform profile: ' + observed['BOOST_PLATFORM'])
     print('Boost.Asio reactor:     ' + observed['reactor'])
     print('Asio local sockets:     ' + observed['local_sockets'])
+    print('Asio interrupter:       ' + observed['interrupter'])
 
     # The bundled Asio patch must route a real cross-compiler to selectLib.h
     # while leaving every host platform on its existing header.

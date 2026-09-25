@@ -11,6 +11,11 @@ int arinc615aRun(const char *json_filename);
 int arinc615aStop(void);
 /* Runs basic codec/hash/C++ checks; returns zero on success. */
 int arinc615aSelfTest(void);
+/* Acceptance-test helpers (see VXWORKS_TEST_PROCEDURE.md). root is a writable
+ * target directory, e.g. "/ram0/arinc"; all return zero on success. */
+int arinc615aPrepareTest(const char *root_directory);
+int arinc615aVerifyTestUpload(const char *root_directory);
+int arinc615aWriteFixtures(const char *directory);
 #ifdef __cplusplus
 }
 #endif

@@ -13,11 +13,16 @@ import threading
 import time
 from pathlib import Path
 
+# vxworks_target_test.py reuses this peer against a real board and overrides
+# these to listen on the LAN interface with a longer network timeout.
+BIND_ADDRESS = '127.0.0.1'
+SOCKET_TIMEOUT = 3
+
 
 def udp():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(('127.0.0.1', 0))
-    sock.settimeout(3)
+    sock.bind((BIND_ADDRESS, 0))
+    sock.settimeout(SOCKET_TIMEOUT)
     return sock
 
 

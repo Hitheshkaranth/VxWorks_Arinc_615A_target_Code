@@ -16,4 +16,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+/* The real sockLib.h reaches mbuf.h, which defines this macro. It rewrites
+   Boost.PropertyTree member names unless BuildConfig.hpp removes it. */
+#define m_data m_hdr.mh_data
 #endif

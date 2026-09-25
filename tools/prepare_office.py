@@ -58,7 +58,7 @@ def main():
             copy(path, Path('licenses') / path.name)
     copy(repo / 'LICENSE', Path('licenses/arinc_615a.LICENSE'))
     copy(repo / 'third_party/arinc_665/LICENSE', Path('licenses/arinc_665.LICENSE'))
-    for name in ('START_HERE.md', 'BUILD_OPTIONS.txt', 'target-config.json'):
+    for name in ('START_HERE.md', 'VXWORKS_TEST_PROCEDURE.md', 'BUILD_OPTIONS.txt', 'target-config.json'):
         copy(repo / 'workbench' / name, Path(name))
     copy(repo / 'third_party/DEPENDENCIES.md', Path('DEPENDENCIES.md'))
     copy(repo / 'DEPENDENCY_REPORT.md', Path('DEPENDENCY_REPORT.md'))
@@ -66,6 +66,7 @@ def main():
         copy(repo / 'VALIDATION.md', Path('VALIDATION.md'))
     copy(repo / 'tests/HostRunner.cpp', Path('tests/HostRunner.cpp'))
     copy(repo / 'tests/network_smoke.py', Path('tests/network_smoke.py'))
+    copy(repo / 'tests/vxworks_target_test.py', Path('tests/vxworks_target_test.py'))
     (dest / 'BUILD_INFO.txt').write_text(
         'Source repository: https://github.com/UVDR-Team/ARINC-Target.git\n'
         f'Source commit: {args.source_commit}\n'

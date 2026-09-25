@@ -23,6 +23,10 @@ This target compiles all production translation units with `__VXWORKS__` and
 - Boost selects the `VxWorks 7` platform profile from `BoostVxWorks.hpp`.
 - Boost.Asio selects the `select` reactor, not kqueue, epoll or `/dev/poll`.
 - Asio local (Unix-domain) sockets are disabled.
+- The stub `sockLib.h` defines the `mbuf.h` `m_data` macro, so a leak into
+  Boost.PropertyTree fails the syntax check.
+- Asio wakes the select reactor through its loopback-socket interrupter, not
+  `pipe()`, which needs `INCLUDE_POSIX_PIPES` (absent from the office image).
 - The bundled Asio patch, read from the real `socket_types.hpp`, routes a
   VxWorks cross-compiler to `<selectLib.h>` under both macro spellings, while
   leaving Linux, macOS and other POSIX hosts on their existing header.

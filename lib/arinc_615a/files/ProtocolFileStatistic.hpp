@@ -17,7 +17,7 @@
 
 #include <iosfwd>
 #include <map>
-#include <shared_mutex>
+#include <mutex>
 #include <string>
 
 namespace Arinc615a::Files {
@@ -96,7 +96,7 @@ class ARINC_615A_EXPORT ProtocolFileStatistic final
     //! Protocol File Statistic
     Statistic statisticV;
     //! Mutex protecting the access to @p statisticV
-    mutable std::shared_mutex mutex;
+    mutable std::mutex mutex;
 };
 
 /**

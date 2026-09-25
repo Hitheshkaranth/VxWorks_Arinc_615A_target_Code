@@ -10,6 +10,7 @@
  * @brief Safe Cast Template.
  **/
 
+#include <cstdint>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>

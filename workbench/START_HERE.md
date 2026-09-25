@@ -88,8 +88,9 @@ hardware data. Set directories to **real target filesystem paths**, not Windows
 paths. Create the upload directory on writable target storage and populate the
 download directory with the files you want the loader to retrieve.
 
-Copy the JSON onto the target, for example `/ram0/ARINC/target-config.json` **only
-if `/ram0` is actually mounted on your board**. Stop the demo, then launch
+Copy the JSON onto the target, for example `/sd0a/ARINC/target-config.json`. The
+sample directories use `/sd0a/ARINC`, because the office image has SD storage but
+no RAM disk (`/ram0`); check with `devs` that the partition you choose is mounted. Stop the demo, then launch
 `arinc615aRun` in a dedicated task with that filename as its string argument.
 Do not enable protocol-file logging until a valid writable log location is set.
 
@@ -111,6 +112,7 @@ protocol code, which is host-verified and is unlikely to be the cause.
 | `Select a VxWorks Downloadable Kernel Module project, not an RTP project.` | Deliberate guard in `BuildConfig.hpp`. The project is an RTP. Recreate it as a DKM. |
 | `vxWorks.h`, `sockLib.h`, `ioLib.h`, `sysLib.h` or `selectLib.h` not found | The VSB include paths are missing. Add the three `$(VSB_DIR)` entries from `BUILD_OPTIONS.txt`. |
 | `sys/poll.h` not found, from `boost/asio/detail/socket_types.hpp` | The bundled Asio patch is missing or was overwritten. That header must select `<selectLib.h>` for `__VXWORKS__`; restore it from this package. |
+| Unresolved `pipe` at module load | The bundled Asio interrupter patch is missing. With `ARINC_ASIO_SOCKET_SELECT_INTERRUPTER` (set in `BuildConfig.hpp`), `boost/asio/detail/select_interrupter.hpp` must pick `socket_select_interrupter`; restore the headers from this package. Adding `INCLUDE_POSIX_PIPES` to the image is the alternative. |
 | `<filesystem>` not found, or `std::filesystem` link errors | The VSB lacks C++17 filesystem support. This is a VSB/VIP configuration item for your platform engineer, not a source fix. Upload and download depend on it. |
 | Errors naming `truncate`, `symlink` or `readlink` inside Boost headers | Boost's obsolete VxWorks stubs are active. Confirm `BOOST_PLATFORM_CONFIG` still points at `arinc_support/BoostVxWorks.hpp`. |
 | Undefined `pthread_*`, `sem_*` or `clock_gettime` at link or load | POSIX components are absent from the VSB/VIP. Enable them in the kernel configuration. |
@@ -122,6 +124,9 @@ the VxWorks preflight check all pass, so the office error log is the only new
 information available and is worth preserving verbatim.
 
 ## 7. Office acceptance checklist
+
+Run these checks with `VXWORKS_TEST_PROCEDURE.md`. It gives the exact kernel-shell
+commands, the Windows test driver `tests/vxworks_target_test.py`, and a results record.
 
 - Clean Debug build succeeds with the correct 24.03 SDK and no unresolved symbols.
 - Module loads; `arinc615aSelfTest` returns 0; debugger hits the demo breakpoint.

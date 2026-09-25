@@ -33,6 +33,11 @@ foreach(index RANGE 0 ${compile_last})
   endif()
 
   math(EXPR target_source_count "${target_source_count} + 1")
+  # CMake 4 records absolute outputs; Ninja names its targets relative to the
+  # build directory, so `ninja -t deps` needs the relative form.
+  if(IS_ABSOLUTE "${output}")
+    file(RELATIVE_PATH output "${BUILD_DIR}" "${output}")
+  endif()
   list(APPEND target_objects "${output}")
   string(JSON command GET "${compile_json}" ${index} command)
   string(JSON source_file GET "${compile_json}" ${index} file)

@@ -13,6 +13,11 @@
 #include <ioLib.h>
 #include <sysLib.h>
 #include <selectLib.h>
+// sockLib.h pulls in mbuf.h, whose m_data macro rewrites Boost.PropertyTree
+// member names in every later header.
+#ifdef m_data
+#undef m_data
+#endif
 #ifndef _WRS_KERNEL
 #error "Select a VxWorks Downloadable Kernel Module project, not an RTP project."
 #endif
@@ -25,5 +30,10 @@
 #define BOOST_ASIO_DISABLE_SERIAL_PORT
 #define BOOST_ASIO_DISABLE_LOCAL_SOCKETS
 #define BOOST_ASIO_HAS_PTHREADS 1
+// Boost.Asio's default POSIX wake-up for the select reactor calls pipe(), which
+// needs INCLUDE_POSIX_PIPES. The office image omits it, so a DKM load would
+// leave pipe() unresolved. Wake the reactor through a loopback TCP pair
+// instead (patched into the bundled Asio headers; see BundledBoost.cmake).
+#define ARINC_ASIO_SOCKET_SELECT_INTERRUPTER 1
 #endif
 #endif

@@ -56,7 +56,7 @@ void PacketStatistic::packet( const Opcode type, const size_t size )
 
 PacketStatistic::Statistic PacketStatistic::statistic() const
 {
-  std::shared_lock lock{ mutex };
+  std::unique_lock lock{ mutex };
   return statisticV;
 }
 
