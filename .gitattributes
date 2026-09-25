@@ -1,2 +1,6 @@
 # set *.ipp files to C++
 *.ipp gitlab-language=cpp
+
+# Line endings that must survive a Windows clone (core.autocrlf=true)
+*.sh text eol=lf
+*.bat text eol=crlf

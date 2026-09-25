@@ -15,7 +15,7 @@
   See VXWORKS_TEST_PROCEDURE.md, Phase I.
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.1.50 -CliBuild C:\ARINC-EXAMPLE\arinc_615a-main\cmake-build-cli-verify
+  powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.0.3 -CliBuild C:\ARINC-EXAMPLE\arinc_615a-main\cmake-build-cli-verify
 #>
 param(
   [Parameter(Mandatory = $true)] [string] $Target,

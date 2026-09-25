@@ -23,9 +23,9 @@ the exact VSB, BSP, image and toolchain written in the results record (§6).
  |  - Workbench 4 (build, load, debug)|  Ethernet|  - ARINC DKM (.out) loaded    |
  |  - Python 3.8+ (test driver)       |<-------->|  - task tArinc: arinc615aRun  |
  |  - tests\vxworks_target_test.py    | same IPv4|  - /sd0a/arinc_test (fixtures)|
- |  IP e.g. 192.168.1.10              |  subnet  |  IP e.g. 192.168.1.50         |
+ |  IP e.g. 192.168.0.2               |  subnet  |  IP e.g. 192.168.0.3          |
  +------------------------------------+          +-------------------------------+
-            |  serial console (COMx), or telnet, or Workbench Host Shell
+            |  serial console (COMx, 115200 8N1) or Workbench Host Shell
             +------------------------------------------> kernel shell (C interpreter)
 ```
 
@@ -76,11 +76,18 @@ mounted and writable first:
 The commands below use `/sd0a/arinc_test`. On another image with a RAM disk, any
 writable root such as `/ram0/arinc` works the same way.
 
-Check the board's network settings:
+Network settings of the office image. It does **not** include the `ifconfig`
+shell command, telnet or `ping`, so the IP comes from the boot line:
 
-```c
--> ifconfig
-```
+| | Value in `UVDR_VIP_20260218` |
+| --- | --- |
+| Boot line | `memac(0,0)host:vxWorks h=192.168.0.2 e=192.168.0.3` |
+| Board IP / interface | `192.168.0.3` on `memac0` (boot-line `e=`) |
+| PC (host) IP | `192.168.0.2` (boot-line `h=`) |
+| Console | `/ttyS0`, 115200 8N1 |
+
+To use another address, change `e=` in the boot parameters and reboot. Confirm
+the address from the PC with `ping 192.168.0.3`.
 
 ### 3.2 Windows PC
 
@@ -170,8 +177,8 @@ the extracted package folder, for example `C:\ARINC\ARINC615A_OFFICE_READY`.
 ### Phase E: Run the Windows test driver
 
 ```bat
-ping 192.168.1.50
-python tests\vxworks_target_test.py --target 192.168.1.50
+ping 192.168.0.3
+python tests\vxworks_target_test.py --target 192.168.0.3
 ```
 
 Full options, with their default values:
@@ -253,7 +260,7 @@ anywhere under the test root.
 ```
 
 ```bat
-python tests\vxworks_target_test.py --target 192.168.1.50 --soak 50
+python tests\vxworks_target_test.py --target 192.168.0.3 --soak 50
 ```
 
 ```c
@@ -304,7 +311,7 @@ netsh advfirewall firewall add rule name="ARINC615A loader CLI (UDP in)" dir=in 
 **Run** while `tArinc` serves `/sd0a/arinc_test/test-config.json` (Phase D):
 
 ```bat
-powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.1.50 -CliBuild <EX>\cmake-build-cli-verify
+powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.0.3 -CliBuild <EX>\cmake-build-cli-verify
 ```
 
 ```c
@@ -329,7 +336,7 @@ and `--target-address` otherwise swallows the next argument. For manual runs:
 
 ```bat
 set PATH=<EX>\cmake-build-cli-verify\vcpkg_installed\x64-windows\debug\bin;%PATH%
-arinc_615a_operation.exe -c Information --target-address=192.168.1.50 --target-id=ARINC_1 --port-option
+arinc_615a_operation.exe -c Information --target-address=192.168.0.3 --target-id=ARINC_1 --port-option
 ```
 
 Also try aborting an operation part-way with Ctrl+C. The target must accept the next

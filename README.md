@@ -64,6 +64,104 @@ Workbench handoff lives in
 
 ---
 
+## Quick start — one command
+
+From nothing to a built, fully checked target, in one line:
+
+**Linux** (Ubuntu, Debian, Fedora, Arch, openSUSE; installs any missing tools)
+
+```bash
+git clone https://github.com/Hitheshkaranth/VxWorks_Arinc_615A_target_Code.git && cd VxWorks_Arinc_615A_target_Code && ./setup.sh
+```
+
+**Windows** (`cmd`; builds through WSL, then run `wsl --install` once if WSL is missing)
+
+```bat
+git clone https://github.com/Hitheshkaranth/VxWorks_Arinc_615A_target_Code.git && cd VxWorks_Arinc_615A_target_Code && setup.bat
+```
+
+That builds everything offline and runs the 229-case regression suite, the
+VxWorks preflight (129/129 files) and the dependency audit. It takes about four
+minutes the first time.
+
+### One-line usage
+
+| What | Linux | Windows |
+| --- | --- | --- |
+| Build and run all host checks | `./setup.sh` | `setup.bat` |
+| Rehearse: local target + protocol peer + upload check | `./setup.sh rehearse` | `setup.bat rehearse` |
+| Run the target on this PC (Enter stops it) | `./setup.sh run` | `setup.bat run` |
+| Test a running target, e.g. the board | `./setup.sh test 192.168.0.3` | `setup.bat test 192.168.0.3` |
+| Test it with the ARINC 615A CLI Tool Suite | — | `setup.bat cli 192.168.0.3 <cli-build>` |
+| Help | `./setup.sh help` | `setup.bat help` |
+
+`run` prints the exact `test` and `cli` commands for the target it started. As a
+normal user it moves the ports to 11001/10059, because Linux reserves ports below
+1024 for root. Add `--find-port 11001 --tftp-port 10059` to `test`, and
+`-FindPort 11001 -TftpPort 10059` to `cli`. On Windows, `test` and `cli` run natively
+(Python and PowerShell) so the board's TFTP transfers reach them; only the
+build goes through WSL.
+
+Then take `delivery/ARINC615A_OFFICE_READY.zip` to Workbench, see
+[Setup — build the DKM in Workbench](#setup--build-the-dkm-in-workbench).
+
+---
+
+## ARINC 615A in brief
+
+ARINC 615A-4 (*Software Data Loader Using Ethernet Interface*) defines how a
+**data loader** (DL) moves software and data to and from **target hardware** over
+Ethernet. It has two parts:
+
+- **FIND** (*FIND Identification of Network Devices*): a UDP broadcast on port
+  **1001**. The loader asks "who is out there?" (IRQ), and every target answers
+  with its identity (IAN): hardware ID, type, position, name and manufacturer.
+- **The Data Load Protocol (DLP)**: every operation is a series of small
+  **protocol files** exchanged over **TFTP** on UDP port **59**. There are no
+  commands and no sessions, only files whose extension says what they mean.
+
+```mermaid
+flowchart LR
+    DL["<b>Data loader</b><br/>ground side<br/><i>CLI Tool Suite · portable DL · bench tool</i>"]
+    TH["<b>Target hardware</b><br/>LRU on the aircraft<br/><i>this repository · THA on VxWorks</i>"]
+    DL -->|"① FIND IRQ · UDP 1001 broadcast"| TH
+    TH -->|"② FIND IAN · who I am"| DL
+    DL -->|"③ read  TARGET.xxI · start an operation"| TH
+    TH -->|"④ write status files · progress"| DL
+    DL <-->|"⑤ loads / files · TFTP UDP 59"| TH
+    TH -->|"⑥ final status · 0003 Completed"| DL
+
+    classDef dl fill:#1F6FEB,stroke:#0D419D,color:#fff
+    classDef th fill:#238636,stroke:#116329,color:#fff
+    class DL dl
+    class TH th
+```
+
+### The four operations
+
+| Operation | Starts with | What it does | Typical use |
+| --- | --- | --- | --- |
+| **Information** | `<ID>.LCI` | Target sends its configuration list `LCL`: hardware, serial number, part numbers | Confirm what software is installed before or after a load |
+| **Upload** | `<ID>.LUI` | Loader sends a list of loads (`LUR`); the target pulls each ARINC 665 load header (`.LUH`) and its files | Install new software or data on the LRU |
+| **Media Defined Download** | `<ID>.LND` | Loader names the files it wants (`LNR`); the target sends them | Retrieve known files such as logs or configuration |
+| **Operator Defined Download** | `<ID>.LNO` | Target offers a list (`LNL`), the operator picks from it (`LNA`), the target sends them | Browse and retrieve whatever the target offers |
+
+`<ID>` is the **target ID** (`ARINC_1` here). Status files (`LUS`, `LNS`) carry a
+counter, a progress ratio, an exception timer and one of these codes:
+
+| Code | Meaning | | Code | Meaning |
+| --- | --- | --- | --- | --- |
+| `0001` | Operation accepted | | `1000` | Operation denied |
+| `0002` | In progress | | `1002` | Not supported by the target |
+| `0003` | **Completed** | | `1003` | Aborted by the target hardware |
+| `0004` | In progress, with description | | `1004` / `1005` | Aborted by the data loader / the operator |
+
+**Software loads** travel as **ARINC 665** media sets: a load header (`.LUH`)
+lists the load's part number, the target hardware it is for, and every data file
+with its length and CRC. The target uses that header to check what it received.
+
+---
+
 ## How it fits together
 
 ```mermaid
@@ -627,6 +725,286 @@ directories at **target** paths, not Windows paths.
 
 ---
 
+## Connecting a real target to the CLI tool
+
+This section connects the board running this module to the
+**[ARINC 615A CLI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite)**
+on a Windows PC. The addresses and interfaces are those of the office image
+(`UVDR_VIP_20260218`). Its default boot line is
+`memac(0,0)host:vxWorks h=192.168.0.2 e=192.168.0.3`.
+
+### Physical setup
+
+```mermaid
+flowchart LR
+    subgraph PC["🖥️  Windows PC · 192.168.0.2/24"]
+        direction TB
+        CLI["<b>arinc_615a_operation.exe</b><br/>CLI Tool Suite<br/><i>FIND · Information · Upload · Downloads</i>"]
+        SCR["tests/cli_acceptance.ps1"]
+        WB["Workbench 4<br/><i>build · download .out · debug</i>"]
+        TERM["Serial terminal<br/><i>PuTTY / Tera Term · COMx</i>"]
+        NIC1["Ethernet NIC<br/><i>static IP · Private profile</i>"]
+        USB["USB-UART"]
+        SCR --> CLI
+        CLI --> NIC1
+        WB --> NIC1
+        TERM --> USB
+    end
+
+    SW{{"Ethernet<br/>direct cable or<br/>maintenance switch"}}
+
+    subgraph BRD["✈️  LS1028A board · VxWorks 24.03 · 192.168.0.3/24"]
+        direction TB
+        ETH["memac0<br/><i>IP from boot line e=</i>"]
+        UART["/ttyS0<br/><i>115200 8N1 · kernel shell</i>"]
+        DKM["<b>ARINC 615A DKM</b><br/>tArinc · FIND 1001 · TFTP 59"]
+        SD["SD card<br/><i>/sd0a/arinc_test</i>"]
+        ETH --> DKM
+        UART --> DKM
+        DKM --> SD
+    end
+
+    NIC1 <-->|"UDP 1001 · UDP 59<br/>+ TFTP data ports"| SW <--> ETH
+    USB <-->|"serial console"| UART
+
+    classDef pc fill:#1F6FEB,stroke:#0D419D,color:#fff
+    classDef brd fill:#238636,stroke:#116329,color:#fff
+    classDef net fill:#8250DF,stroke:#5A32A3,color:#fff
+    class CLI,SCR,WB,TERM,NIC1,USB pc
+    class ETH,UART,DKM,SD brd
+    class SW net
+```
+
+Two links, two jobs:
+
+- **Ethernet** carries ARINC 615A: FIND on UDP 1001, the data load on UDP 59, and
+  the TFTP transfers the board opens back to the PC. Workbench uses it too.
+- **Serial** is the kernel shell, used to load, start and check the module. The
+  image has **no telnet server**, so the console is the shell.
+
+### Address plan
+
+| | PC | Board |
+| --- | --- | --- |
+| IPv4 | `192.168.0.2/24` (boot-line host `h=`) | `192.168.0.3/24` (boot-line target `e=`) |
+| Interface | the PC's Ethernet NIC | `memac0` |
+| Listens on | TFTP data ports opened by the CLI | UDP **1001** (FIND), UDP **59** (TFTP) |
+| Console | COM port · 115200 8N1 | `/ttyS0` |
+
+> [!NOTE]
+> The board's IP comes from its **boot line**, not from the shell. The image does
+> not include the `ifconfig` shell command. To use another address, change `e=` in
+> the boot parameters and reboot, or rebuild the VIP with a new `DEFAULT_BOOT_LINE`.
+> Keep the PC and the board in the same subnet: FIND is a broadcast and does not
+> cross routers.
+
+### Bring-up, step by step
+
+```mermaid
+flowchart TD
+    A(["1 · Cable Ethernet + serial, power on"]) --> B{"serial console shows<br/>the VxWorks banner and -> ?"}
+    B -->|no| BF["check COM port · 115200 8N1 · cable"]
+    B -->|yes| C["2 · PC static IP 192.168.0.2/24"]
+    C --> D{"3 · ping 192.168.0.3<br/>from the PC?"}
+    D -->|no| DF["check cable/link LEDs · boot line e= ·<br/>PC adapter and subnet"]
+    D -->|yes| E["4 · firewall rule for the CLI"]
+    E --> F["5 · load module · self-test"]
+    F --> G["6 · prepare test root · taskSpawn tArinc"]
+    G --> H{"7 · CLI Find sees ARINC_1?"}
+    H -->|no| HF["tArinc running? (i) · UDP 1001 blocked? ·<br/>wrong subnet?"]
+    H -->|yes| I{"8 · CLI Information completes?"}
+    I -->|no| IF["PC firewall blocks the board's<br/>TFTP transfers back to the CLI"]
+    I -->|yes| J(["9 · cli_acceptance.ps1 · 7/7"])
+
+    classDef ok fill:#238636,stroke:#116329,color:#fff
+    classDef err fill:#DA3633,stroke:#A40E26,color:#fff
+    classDef step fill:#1F6FEB,stroke:#0D419D,color:#fff
+    class J ok
+    class BF,DF,HF,IF err
+    class C,E,F,G step
+```
+
+**1 · Cable and console.** Connect the board's Ethernet port to the PC (direct or
+through a switch) and the board's console UART to the PC. Open the COM port at
+**115200 8N1** and power on. You should see the VxWorks banner and the `->`
+prompt.
+
+**2 · Give the PC its address.** In an elevated `cmd`, using the adapter name
+shown by `ipconfig`:
+
+```bat
+netsh interface ipv4 set address name="Ethernet" static 192.168.0.2 255.255.255.0
+```
+
+**3 · Check the link.** There is no `ping` command on the board, so check from
+the PC:
+
+```bat
+ping 192.168.0.3
+```
+
+**4 · Let the board's transfers reach the CLI.** The board opens TFTP transfers
+*to* the PC, so Windows Firewall must allow them. Run once, elevated:
+
+```bat
+netsh advfirewall firewall add rule name="ARINC615A loader CLI (UDP in)" dir=in action=allow protocol=UDP profile=private remoteip=192.168.0.0/24 program="<cli-build>\app\arinc_615a_operation\arinc_615a_operation.exe"
+```
+
+**5–6 · Load and start the target.** In the serial console:
+
+```c
+-> ld < /tgtsvr/<path>/ARINC615A.out      /* or Workbench: Download */
+-> arinc615aSelfTest                      /* value = 0 */
+-> arinc615aPrepareTest "/sd0a/arinc_test"
+-> taskSpawn("tArinc", 100, 0x01000000, 0x100000, arinc615aRun, "/sd0a/arinc_test/test-config.json")
+-> i                                      /* tArinc is PEND */
+```
+
+**7–8 · Talk to it with the CLI.** On the PC, with the CLI's DLLs on `PATH`:
+
+```bat
+arinc_615a_operation.exe -c Find
+arinc_615a_operation.exe -c Find        --target-address=192.168.0.3
+arinc_615a_operation.exe -c Information --target-address=192.168.0.3 --target-id=ARINC_1 --port-option
+```
+
+The first `Find` is a broadcast and should discover the board without being
+told its address. `Information` should end with
+`Final Status Code: Operation completed (0003)`.
+
+**9 · Full acceptance.**
+
+```bat
+powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.0.3 -CliBuild <cli-build>
+```
+
+```c
+-> arinc615aVerifyTestUpload "/sd0a/arinc_test"
+```
+
+### A complete CLI session with the board
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Op as Operator (PC)
+    participant C as CLI Tool Suite
+    participant B as Board · tArinc
+    participant S as SD card
+
+    Op->>C: -c Find
+    C->>B: FIND IRQ · broadcast · UDP 1001
+    B-->>C: IAN · ARINC · THA · ARINC_1
+    Op->>C: -c Information --target-id=ARINC_1
+    C->>B: read ARINC_1.LCI
+    B->>C: LCL · 'ARINC 615A Test' · TEST001 · DEMO-PN
+    Op->>C: -c AdhocUpload --load-header=DEMOLOAD.LUH
+    C->>B: LUI · LUR
+    B->>C: fetch DEMOLOAD.LUH · payload.bin
+    B->>S: write /sd0a/arinc_test/upload/payload.bin
+    B->>B: check length · CRC16
+    B->>C: LUS · 0003 Completed
+    Op->>C: -c OpDownload --file=payload.bin
+    B->>S: read /sd0a/arinc_test/download/payload.bin
+    B->>C: LNL · payload.bin · LNS 0003
+```
+
+### Within the system
+
+There are two ways to run the target and the CLI together without a
+separate test bench.
+
+#### On one PC, with no board
+
+The same target code builds as `arinc_host_runner`. Run it in WSL, and the
+Windows CLI talks to it across the virtual network, exactly as it would to the
+board. This is how the [CLI test run](#how-it-was-actually-tested-and-the-result)
+was done.
+
+```mermaid
+flowchart LR
+    subgraph WIN["Windows 11"]
+        CLI2["arinc_615a_operation.exe<br/>+ cli_acceptance.ps1"]
+    end
+    subgraph WSL["WSL 2 Ubuntu · 172.x.x.x"]
+        RUN["arinc_host_runner<br/><i>same THA code · VxWorks wake-up path</i>"]
+        FS2["/tmp/arinc_cli<br/><i>upload · download</i>"]
+        RUN --> FS2
+    end
+    CLI2 <-->|"vEthernet (WSL)<br/>FIND 11001 · TFTP 10059"| RUN
+
+    classDef pc fill:#1F6FEB,stroke:#0D419D,color:#fff
+    classDef brd fill:#238636,stroke:#116329,color:#fff
+    class CLI2 pc
+    class RUN,FS2 brd
+```
+
+Ports move to 11001 and 10059 because Linux reserves ports below 1024 for root.
+The commands are in [Rehearse without a board](#rehearse-without-a-board).
+
+#### Inside the UVDR system on the board
+
+In service, the ARINC 615A target runs **next to the UVDR application** on the
+same VxWorks image. It shares the network interface and the SD card, but has its
+own task, ports and folders.
+
+```mermaid
+flowchart TB
+    subgraph VX["VxWorks 24.03 kernel · LS1028A"]
+        direction TB
+        subgraph UVDR["UVDR application DKM"]
+            REC["recording · Ch10 writer ·<br/>video · serial listener tasks"]
+        end
+        subgraph ARINC["ARINC 615A DKM"]
+            TA["tArinc<br/><i>one task · event loop</i>"]
+        end
+        NET["IPNET · memac0 · 192.168.0.3"]
+        SDC["SD card"]
+        SCRIPT["startup script<br/><i>boot line s=…</i>"]
+        SCRIPT -->|"ld · taskSpawn"| UVDR
+        SCRIPT -->|"ld · arinc615aSelfTest · taskSpawn"| ARINC
+        REC --> NET
+        TA -->|"UDP 1001 · 59"| NET
+        REC -->|"/sd0a · /sd0b · /sd0d · /sd1a"| SDC
+        TA -->|"/sd0a/ARINC/upload · download"| SDC
+    end
+    NET <-->|Ethernet| DL["Data loader<br/>CLI Tool Suite"]
+
+    classDef uv fill:#5A6472,stroke:#3D4551,color:#fff
+    classDef ar fill:#238636,stroke:#116329,color:#fff
+    classDef os fill:#0B5CA8,stroke:#083F73,color:#fff
+    classDef dl fill:#1F6FEB,stroke:#0D419D,color:#fff
+    class REC uv
+    class TA ar
+    class NET,SDC,SCRIPT os
+    class DL dl
+```
+
+To start it automatically at boot, the image already includes
+`INCLUDE_STARTUP_SCRIPT`. Put a shell script on the SD card and set the boot
+line's startup-script field (`s=`) to it:
+
+```c
+/* /sd0a/startup.cmd, run by the kernel shell at boot */
+ld < /sd0a/ARINC615A.out
+arinc615aSelfTest
+taskSpawn("tArinc", 150, 0x01000000, 0x100000, arinc615aRun, "/sd0a/ARINC/target-config.json")
+```
+
+Rules for sharing the board:
+
+- **Priority.** Give `tArinc` a *lower* priority than the UVDR recording tasks
+  (a higher number; `150` above, where `100` is used for testing). Data loading
+  then never delays recording. Check the UVDR task priorities with `i`.
+- **Storage.** Keep ARINC folders separate from UVDR data. Uploads go only to the
+  configured upload directory, and path traversal is rejected, so a load can
+  never overwrite `/sd0d/TMATS-Config.xml` or recordings.
+- **Ports.** ARINC uses UDP 1001 and 59 only. Make sure no UVDR task binds them.
+- **Config.** Use a production `target-config.json` with the real hardware ID, serial
+  and part numbers (see `START_HERE.md` §5), not the `DEMO-PN` test config.
+
+---
+
 ## Test procedure
 
 Testing is layered. Each layer proves something the one before cannot, and the
@@ -705,8 +1083,8 @@ UDP/TFTP peer written against the standard, not against this code. It uses only
 the Python standard library. With `tArinc` running (see [Runtime](#runtime--load-and-run-on-the-board)):
 
 ```bat
-ping 192.168.1.50
-python tests\vxworks_target_test.py --target 192.168.1.50
+ping 192.168.0.3
+python tests\vxworks_target_test.py --target 192.168.0.3
 ```
 
 | ID | Check |
@@ -722,7 +1100,7 @@ python tests\vxworks_target_test.py --target 192.168.1.50
 | T09 | `--soak N`: N upload + download cycles, for memory checks with `memShow` |
 
 ```text
-PASS: T01 FIND answered by 192.168.1.50
+PASS: T01 FIND answered by 192.168.0.3
 PASS: T02 Information: LCL has DEMO-PN/TEST001 (one lost DATA packet retransmitted)
 …
 ALL 9 CHECKS PASSED in 7.5 s. Now run on the target: arinc615aVerifyTestUpload "<root>"
@@ -794,13 +1172,13 @@ netsh advfirewall firewall add rule name="ARINC615A loader CLI (UDP in)" dir=in 
 #### Run
 
 ```bat
-powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.1.50 -CliBuild <cli-build>
+powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.0.3 -CliBuild <cli-build>
 ```
 
 Expected output:
 
 ```text
-PASS: C01 FIND answered by 192.168.1.50 with target ID ARINC_1
+PASS: C01 FIND answered by 192.168.0.3 with target ID ARINC_1
 PASS: C02 Information: integrity valid, part number DEMO-PN, completed
 PASS: C03 Operator Defined Download: file list received, payload.bin byte-identical, completed
 PASS: C04 Media Defined Download: payload.bin byte-identical, completed
@@ -880,9 +1258,9 @@ hung at exit without printing a result. That is how the exit-hang bug was found.
 
 ```bat
 set PATH=C:\vi\x64-windows\bin;%PATH%      REM suite scripts; for a debug build use C:\vi\x64-windows\debug\bin
-arinc_615a_operation.exe -c Find        --target-address=192.168.1.50
-arinc_615a_operation.exe -c Information --target-address=192.168.1.50 --target-id=ARINC_1 --port-option
-arinc_615a_operation.exe -c OpDownload  --target-address=192.168.1.50 --target-id=ARINC_1 --port-option --file=payload.bin
+arinc_615a_operation.exe -c Find        --target-address=192.168.0.3
+arinc_615a_operation.exe -c Information --target-address=192.168.0.3 --target-id=ARINC_1 --port-option
+arinc_615a_operation.exe -c OpDownload  --target-address=192.168.0.3 --target-id=ARINC_1 --port-option --file=payload.bin
 ```
 
 > [!TIP]

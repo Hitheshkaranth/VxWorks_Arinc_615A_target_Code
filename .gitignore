@@ -9,3 +9,6 @@ symbology-style.db
 /out/
 .DS_Store
 /delivery/ARINC615A_OFFICE_READY/
+
+# setup.sh: CMake fetched on old distributions
+.toolchain/
