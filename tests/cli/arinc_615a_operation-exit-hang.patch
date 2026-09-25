@@ -1,0 +1,22 @@
+--- a/app/arinc_615a_operation/arinc_615a_operation.cpp
++++ b/app/arinc_615a_operation/arinc_615a_operation.cpp
+@@ -92,14 +92,17 @@
+       "ARINC 615A Operation - {}\n",
+       Arinc615a::Version::VersionInformation );
+ 
+-    const auto registry{ Commands::CommandRegistry::instance() };
+-
+     boost::asio::io_context ioContext;
+     boost::asio::signal_set signals{ ioContext, SIGINT, SIGTERM };
+ 
+     Arinc615aCommands::AbortTerminateSignal abortSignal;
+     Arinc615aCommands::AbortTerminateSignal terminateSignal;
+ 
++    // Declared after the I/O context and signals so it is destroyed first:
++    // commands keep their operations (sockets, timers) alive, and destroying
++    // them after the io_context is undefined and hangs the exit on Windows.
++    const auto registry{ Commands::CommandRegistry::instance() };
++
+     Arinc615aCommands::registerCommands( registry, ioContext, abortSignal, terminateSignal );
+ 
+     Arinc665Commands::registerCommands( registry );

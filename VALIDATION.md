@@ -47,6 +47,15 @@ are now repaired in `third_party/boost_vxworks_overlay`, applied by
   `tests/vxworks_target_test.py`, including from Windows Python to a WSL-hosted
   target: 9/9 checks (FIND, Information with retransmission, both downloads,
   upload, malformed/rejected inputs, soak), upload verified, clean stop.
+- Interoperability with the real data loader, the ARINC-EXAMPLE CLI
+  `arinc_615a_operation.exe` (MSVC, Windows), against the target application
+  (VxWorks interrupter path) in WSL. `tests/cli_acceptance.ps1`: 7/7 checks.
+  Covers FIND, Information (integrity valid), Operator and Media Defined
+  Download (payload byte-identical) and Adhoc Upload of an ARINC 665 media set
+  built by `arinc_665_media_set_compiler`; the target verified the upload.
+  The CLI needed one fix, `tests/cli/arinc_615a_operation-exit-hang.patch`: its
+  command registry outlived the `io_context`, so it hung at exit on Windows and
+  lost its buffered results.
 
 ## Original record
 

@@ -67,6 +67,9 @@ def main():
     copy(repo / 'tests/HostRunner.cpp', Path('tests/HostRunner.cpp'))
     copy(repo / 'tests/network_smoke.py', Path('tests/network_smoke.py'))
     copy(repo / 'tests/vxworks_target_test.py', Path('tests/vxworks_target_test.py'))
+    copy(repo / 'tests/cli_acceptance.ps1', Path('tests/cli_acceptance.ps1'))
+    copy(repo / 'tests/cli/arinc_615a_operation-exit-hang.patch',
+         Path('tests/cli/arinc_615a_operation-exit-hang.patch'))
     (dest / 'BUILD_INFO.txt').write_text(
         'Source repository: https://github.com/UVDR-Team/ARINC-Target.git\n'
         f'Source commit: {args.source_commit}\n'

@@ -269,21 +269,69 @@ python tests\vxworks_target_test.py --target 192.168.1.50 --soak 50
   before it. Run the soak a second time and compare again: free memory must **not trend
   downward** from run to run.
 
-### Phase I (optional): Real data loader interoperability
+### Phase I: Data loader acceptance with the ARINC-EXAMPLE CLI
 
-Configure the office ARINC 615A data loader (DLA) with the board IP. Target ID is
-`ARINC_1`, FIND port 1001 and TFTP port 59. Then run:
+This phase uses the real ARINC 615A data loader: `arinc_615a_operation.exe`, the
+ARINC-EXAMPLE CLI. The script `tests\cli_acceptance.ps1` drives it through every
+operation and builds an ARINC 665 media set for the upload.
 
-1. FIND/discovery: the target appears with thwId `ARINC`.
-2. Information: part number `DEMO-PN` and serial number `TEST001` are shown.
-3. Upload a known test load. Then check the resulting files on the target: compare their
-   sizes and checksums with the originals.
-4. Media Defined Download and Operator Defined Download of `payload.bin`.
-5. Abort an operation from the DLA part-way through. The target must recover and accept
-   the next operation.
+**One-time CLI setup on the Windows PC** (`<EX>` is the ARINC-EXAMPLE
+`arinc_615a-main` folder that holds `verify-cli.bat`):
 
-For real hardware data, replace `test-config.json` with a production `target-config.json`
-as described in `START_HERE.md` §5.
+1. Apply `tests\cli\arinc_615a_operation-exit-hang.patch` to
+   `<EX>\app\arinc_615a_operation\arinc_615a_operation.cpp`. Without it the CLI never
+   exits after Information, Download and Upload operations. Its command objects
+   outlive the `io_context`, which hangs process exit on Windows. The results are
+   printed but stay in the buffer, so they are never shown.
+2. From `<EX>`, run `verify-cli.bat` to rebuild the CLI.
+3. Build the ARINC 665 media set compiler in the same build tree:
+
+```bat
+call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+<EX>\.tools\cmake-4.3.4-windows-x86_64\bin\cmake.exe --build <EX>\cmake-build-cli-verify --target arinc_665_media_set_compiler
+```
+
+4. Allow the CLI to receive UDP from the board. Run this in an elevated `cmd`, on the
+   Private profile:
+
+```bat
+netsh advfirewall firewall add rule name="ARINC615A loader CLI (UDP in)" dir=in action=allow protocol=UDP profile=private program="<EX>\cmake-build-cli-verify\app\arinc_615a_operation\arinc_615a_operation.exe"
+```
+
+**Run** while `tArinc` serves `/sd0a/arinc_test/test-config.json` (Phase D):
+
+```bat
+powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target 192.168.1.50 -CliBuild <EX>\cmake-build-cli-verify
+```
+
+```c
+-> arinc615aVerifyTestUpload "/sd0a/arinc_test"
+```
+
+| Check | What it proves |
+| --- | --- |
+| C01 | `Find` discovers the board with target ID `ARINC_1` |
+| C02 | `Information`: integrity valid, `DEMO-PN` shown, completed (0003) |
+| C03 | `OpDownload`: file list received, `payload.bin` byte-identical, completed |
+| C04 | `MedDownload`: `payload.bin` byte-identical, completed |
+| C05 | ARINC 665 media set `DEMO-MS` (load `DEMOLOAD.LUH` → `payload.bin`) compiled |
+| C06 | `AdhocUpload` of `DEMOLOAD.LUH`: load and operation completed |
+| C07 | The board still answers `Find` after all operations |
+
+**Expected:** 7 passed, script exit code 0. Then `arinc615aVerifyTestUpload` returns 0,
+which proves the uploaded file on the board is byte-identical.
+
+The CLI needs `--option=value` syntax. Several of its short options clash (`-l`, `-t`),
+and `--target-address` otherwise swallows the next argument. For manual runs:
+
+```bat
+set PATH=<EX>\cmake-build-cli-verify\vcpkg_installed\x64-windows\debug\bin;%PATH%
+arinc_615a_operation.exe -c Information --target-address=192.168.1.50 --target-id=ARINC_1 --port-option
+```
+
+Also try aborting an operation part-way with Ctrl+C. The target must accept the next
+operation. For real hardware data, replace `test-config.json` with a production
+`target-config.json`, as described in `START_HERE.md` §5.
 
 ## 5. Rehearsal without a board (optional)
 
@@ -300,7 +348,15 @@ python3 tests/vxworks_target_test.py --target 127.0.0.1 --find-port 11001 --tftp
 ./build/arinc_host_runner --verify /tmp/arinc
 ```
 
-A rehearsal pass proves the procedure and script, not VxWorks. The board run is still mandatory.
+The Phase I CLI test runs against the same WSL target from Windows, using its IP from
+`wsl hostname -I` and the moved ports. The CLI firewall rule must also allow the WSL
+range (172.16.0.0/12):
+
+```bat
+powershell -ExecutionPolicy Bypass -File tests\cli_acceptance.ps1 -Target <wsl-ip> -CliBuild <EX>\cmake-build-cli-verify -FindPort 11001 -TftpPort 10059
+```
+
+A rehearsal pass proves the procedure and scripts, not VxWorks. The board run is still mandatory.
 
 ## 6. Troubleshooting
 
@@ -359,9 +415,9 @@ A rehearsal pass proves the procedure and script, not VxWorks. The board run is 
 | H-1 | `checkStack "tArinc"` | No overflow; margin recorded | | High-water mark: |
 | H-2 | `--soak 50` | All PASS | | |
 | H-3 | `memShow` trend | No downward trend | | Free bytes before and after: |
-| I-1 | DLA discovery and Information (optional) | Target and part numbers shown | | |
-| I-2 | DLA upload and downloads (optional) | Files and checksums match | | |
-| I-3 | DLA abort and recovery (optional) | Next operation accepted | | |
+| I-1 | `cli_acceptance.ps1` C01 to C07 | 7 passed, exit code 0 | | Attach the output folder |
+| I-2 | `arinc615aVerifyTestUpload` after the CLI upload | Returns 0 | | |
+| I-3 | CLI abort (Ctrl+C) and recovery | Next operation accepted | | |
 
-Call the port "VxWorks/board validated" only when every mandatory row (A through H) is PASS.
+Call the port "VxWorks/board validated" only when every row (A through I) is PASS.
 Keep this record with the build log, the script output, and the image and VSB identity.
