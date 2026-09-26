@@ -5,6 +5,11 @@ project(arinc_615a LANGUAGES C CXX)
 include(GNUInstallDirs)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# Pin the language to C++17, as the VxWorks 24.03 LLVM 17 runtime requires.
+# cxx_std_17 alone is only a minimum: compilers that default to C++20 or later
+# (GCC 16) then get no -std flag and silently build the target as C++20+.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ARINC615A_THA_BUILD_TEST_APPLICATION "Build the original desktop CLI" OFF)
 option(ARINC_BUILD_TESTS "Build host regression tests; never included in the DKM" OFF)

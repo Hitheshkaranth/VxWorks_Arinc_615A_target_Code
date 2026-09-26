@@ -75,14 +75,24 @@ build() {
   ok "build"
 }
 
+# Run a check target: show its summary lines, or its full error output on failure.
+step() {
+  local out
+  if ! out="$(cmake --build "$BUILD" --target "$1" 2>&1)"; then
+    printf '%s\n' "$out" | grep -vE '^\s+from |In file included' | tail -30
+    die "$1"
+  fi
+  printf '%s\n' "$out" | grep -E "$2"
+}
+
 checks() {
   say "Host regression, self-test and network suite"
   ctest --test-dir "$BUILD" -j4 --output-on-failure | tail -3
   ok "$(grep -hE 'test cases|assertions' "$BUILD/Testing/Temporary/LastTest.log" | sed 's/^ *//' | tr '\n' ' ')"
   say "VxWorks preflight"
-  cmake --build "$BUILD" --target arinc_vxworks_preflight | grep -E 'syntax check|interrupter|preflight passed'
+  step arinc_vxworks_preflight 'syntax check|interrupter|preflight passed'
   say "Dependency audit"
-  cmake --build "$BUILD" --target arinc_target_audit | grep -E 'audit passed'
+  step arinc_target_audit 'audit passed'
   ok "all host checks passed · next: ./setup.sh rehearse"
 }
 
