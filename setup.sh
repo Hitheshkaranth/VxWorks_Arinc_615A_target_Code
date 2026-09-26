@@ -23,6 +23,8 @@ die()  { printf '\033[1;31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
 as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
 
 version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
+# Only coreutils are assumed: minimal images (openSUSE, Fedora) ship without awk.
+cmake_version() { local line; line="$(cmake --version 2>/dev/null | head -1)"; echo "${line##* }"; }
 
 install_deps() {
   local missing=()
@@ -40,7 +42,7 @@ install_deps() {
     elif command -v pacman >/dev/null; then
       as_root pacman -Sy --noconfirm --needed gcc ninja python cmake curl
     elif command -v zypper >/dev/null; then
-      as_root zypper --non-interactive install gcc-c++ ninja python3 cmake curl
+      as_root zypper --non-interactive install gcc-c++ ninja python3 cmake curl grep sed
     else
       die "No supported package manager. Install g++ (C++17), ninja, python3 and cmake >= $CMAKE_MIN."
     fi
@@ -49,7 +51,7 @@ install_deps() {
   # Older distributions (e.g. Ubuntu 22.04: CMake 3.22) are below the minimum:
   # fetch the official Kitware binary into a git-ignored .toolchain/.
   local have
-  have="$(cmake --version 2>/dev/null | head -1 | awk '{print $3}')"
+  have="$(cmake_version)"
   if [ -x "$TOOLCHAIN/bin/cmake" ]; then
     export PATH="$TOOLCHAIN/bin:$PATH"
   elif ! version_ge "${have:-0}" "$CMAKE_MIN"; then
@@ -61,7 +63,7 @@ install_deps() {
       | tar -xz -C "$TOOLCHAIN" --strip-components=1
     export PATH="$TOOLCHAIN/bin:$PATH"
   fi
-  ok "tools: $(g++ -dumpfullversion) · cmake $(cmake --version | head -1 | awk '{print $3}') · ninja $(ninja --version) · $(python3 --version)"
+  ok "tools: $(g++ -dumpfullversion) · cmake $(cmake_version) · ninja $(ninja --version) · $(python3 --version)"
 }
 
 build() {
@@ -102,7 +104,7 @@ run_target() {
   ports
   local root="${ARINC_ROOT:-/tmp/arinc615a-target}"
   prepare_root "$root"
-  local ip; ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  local ip; ip="$(hostname -I 2>/dev/null || true)"; ip="${ip%% *}"
   say "Target ARINC_1 on ${ip:-this host}: FIND UDP $FIND · TFTP UDP $TFTP · files in $root"
   echo "    Linux : ./setup.sh test ${ip:-127.0.0.1} --find-port $FIND --tftp-port $TFTP"
   echo "    CLI   : setup.bat cli ${ip:-<ip>} <cli-build> -FindPort $FIND -TftpPort $TFTP"
