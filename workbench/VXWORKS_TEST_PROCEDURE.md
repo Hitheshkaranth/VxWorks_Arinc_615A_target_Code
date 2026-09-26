@@ -289,8 +289,9 @@ operation and builds an ARINC 665 media set for the upload.
    `<EX>\app\arinc_615a_operation\arinc_615a_operation.cpp`. Its command objects
    outlive the `io_context`, which is undefined behaviour. With the MSVC debug
    build, the CLI hung at exit after every Information, Download and Upload
-   operation, so its buffered results were never shown. The release build exited
-   normally in our runs. Apply the patch in either case.
+   operation, so its buffered results were never shown. In an A/B test it hung in
+   5 of 5 runs unpatched and 0 of 5 patched. The release build exited normally in
+   our runs. Apply the patch in either case.
 2. From `<EX>`, run `verify-cli.bat` to rebuild the CLI. With the published
    [ARINC 615A CLI Tool Suite](https://github.com/Hitheshkaranth/arinc-615a-cli-tool-suite)
    instead, run `git apply` with the patch, then `build.bat --no-run`. Its DLLs are

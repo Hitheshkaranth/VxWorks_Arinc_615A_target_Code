@@ -56,8 +56,10 @@ are now repaired in `third_party/boost_vxworks_overlay`, applied by
   The CLI needed one fix, `tests/cli/arinc_615a_operation-exit-hang.patch`. Its
   command registry outlived the `io_context` (undefined behaviour), and the MSVC
   debug build hung at exit and lost its buffered results. The unpatched release
-  build exited normally in 5 of 5 runs. A clean A/B test was cut short by host
-  memory exhaustion and is still open.
+  build exited normally in 5 of 5 runs. Clean A/B test on the debug build (same
+  build tree, a fresh target per run, completion confirmed on the wire each time):
+  unpatched, 5 of 5 runs hung at exit with no result printed; patched, 0 of 5 hung
+  and 5 of 5 printed `Operation completed`.
 - One-command setup (`setup.sh`, `setup.bat`) verified from bare Docker images of
   Ubuntu 24.04, Ubuntu 22.04 (fetches CMake 3.31.6), Fedora 41, Debian 12, Arch
   and openSUSE Tumbleweed, all cloning from GitHub, on WSL Ubuntu and on

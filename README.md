@@ -1163,10 +1163,12 @@ sequenceDiagram
 > [!WARNING]
 > **Apply the exit-hang patch first.** In the published CLI suite, the command
 > registry is declared before the `io_context`, so it is destroyed after it. That
-> is undefined behaviour. With the MSVC **debug** build it made the process
-> **hang at exit after every TFTP operation** in our runs, so the buffered results
-> were never printed. The **release** build exited normally in 5 of 5 runs, but
-> the destruction order is still wrong. The one-line reorder is in
+> is undefined behaviour. A clean A/B test on the MSVC **debug** build (same build
+> tree, a fresh target for every run, the operation confirmed complete on the wire
+> each time) gave: **unpatched, 5 of 5 runs hung at exit** with no result printed;
+> **patched, 0 of 5 hung** and all 5 printed `Operation completed`. The unpatched
+> **release** build exited normally in 5 of 5 runs, but the destruction order is
+> still wrong. The one-line reorder is in
 > [`tests/cli/arinc_615a_operation-exit-hang.patch`](tests/cli/arinc_615a_operation-exit-hang.patch).
 
 ```bat
@@ -1327,7 +1329,7 @@ To test the **VxWorks code path** on the host, add
 
 ## Test results
 
-Latest run: 25–26 September 2026, commit `f6dd964`.
+Latest run: 25–26 September 2026, on `main`.
 
 | Layer | Environment | Result |
 | --- | --- | --- |
@@ -1338,6 +1340,8 @@ Latest run: 25–26 September 2026, commit `f6dd964`.
 | Unresolvable-on-image symbols | VxWorks-path build vs office image | ✅ none (`pipe`, `eventfd`, `socketpair`, `pthread_rwlock` all gone) |
 | Protocol peer | Windows Python → target in WSL | ✅ 9/9 including 20-cycle soak |
 | **Real data loader** | **ARINC 615A CLI Tool Suite (MSVC) → target in WSL** | ✅ **7/7** · upload verified on target |
+| CLI exit-hang patch, A/B | MSVC debug CLI, fresh target per run | ✅ unpatched 5/5 hung · patched 0/5 hung, 5/5 results |
+| One-line install | Bare Ubuntu 24.04/22.04, Debian 12, Fedora 41, Arch, openSUSE · WSL · Windows | ✅ all passed, cloned from GitHub |
 | Workbench DKM build | Office SDK | ⏳ pending, in the office |
 | Board run (layers 4 and 5) | LS1028A board | ⏳ pending, in the office |
 
