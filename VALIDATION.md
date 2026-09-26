@@ -53,9 +53,16 @@ are now repaired in `third_party/boost_vxworks_overlay`, applied by
   Covers FIND, Information (integrity valid), Operator and Media Defined
   Download (payload byte-identical) and Adhoc Upload of an ARINC 665 media set
   built by `arinc_665_media_set_compiler`; the target verified the upload.
-  The CLI needed one fix, `tests/cli/arinc_615a_operation-exit-hang.patch`: its
-  command registry outlived the `io_context`, so it hung at exit on Windows and
-  lost its buffered results.
+  The CLI needed one fix, `tests/cli/arinc_615a_operation-exit-hang.patch`. Its
+  command registry outlived the `io_context` (undefined behaviour), and the MSVC
+  debug build hung at exit and lost its buffered results. The unpatched release
+  build exited normally in 5 of 5 runs. A clean A/B test was cut short by host
+  memory exhaustion and is still open.
+- One-command setup (`setup.sh`, `setup.bat`) verified from bare Docker images of
+  Ubuntu 24.04, Ubuntu 22.04 (fetches CMake 3.31.6) and Fedora 41, on WSL
+  Ubuntu and on Windows 11. Debian 12, Arch and openSUSE exposed an audit bug
+  on CMake 3.25 and GCC 16 building the target as C++20 (C++17 now pinned).
+  Both are fixed, not yet re-verified.
 
 ## Original record
 

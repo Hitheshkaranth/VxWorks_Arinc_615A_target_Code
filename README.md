@@ -68,7 +68,8 @@ Workbench handoff lives in
 
 From nothing to a built, fully checked target, in one line:
 
-**Linux** (Ubuntu, Debian, Fedora, Arch, openSUSE; installs any missing tools)
+**Linux** (installs any missing tools; tested from bare images of Ubuntu 24.04,
+Ubuntu 22.04 and Fedora 41, and on WSL Ubuntu)
 
 ```bash
 git clone https://github.com/Hitheshkaranth/VxWorks_Arinc_615A_target_Code.git && cd VxWorks_Arinc_615A_target_Code && ./setup.sh
@@ -83,6 +84,12 @@ git clone https://github.com/Hitheshkaranth/VxWorks_Arinc_615A_target_Code.git &
 That builds everything offline and runs the 229-case regression suite, the
 VxWorks preflight (129/129 files) and the dependency audit. It takes about four
 minutes the first time.
+
+| Platform | Status of the one-liner |
+| --- | --- |
+| Ubuntu 24.04 · Ubuntu 22.04 · Fedora 41 (bare Docker images) | ✅ verified: install, build, all checks, rehearsal 9/9. On 22.04 it also fetched CMake 3.31.6 |
+| WSL Ubuntu · Windows 11 (`setup.bat`) | ✅ verified |
+| Debian 12 · Arch · openSUSE Tumbleweed | ⚠️ supported (`apt` / `pacman` / `zypper`). The first run found issues, now fixed: the C++17 pin for GCC 16 and the audit on CMake 3.25. Not re-verified yet |
 
 ### One-line usage
 
@@ -1151,9 +1158,11 @@ sequenceDiagram
 
 > [!WARNING]
 > **Apply the exit-hang patch first.** In the published CLI suite, the command
-> registry is declared before the `io_context`, so it is destroyed after it. On
-> Windows the process then **hangs at exit after every TFTP operation**, and its
-> buffered results are never printed. The one-line reorder is in
+> registry is declared before the `io_context`, so it is destroyed after it. That
+> is undefined behaviour. With the MSVC **debug** build it made the process
+> **hang at exit after every TFTP operation** in our runs, so the buffered results
+> were never printed. The **release** build exited normally in 5 of 5 runs, but
+> the destruction order is still wrong. The one-line reorder is in
 > [`tests/cli/arinc_615a_operation-exit-hang.patch`](tests/cli/arinc_615a_operation-exit-hang.patch).
 
 ```bat
