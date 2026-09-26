@@ -68,8 +68,8 @@ Workbench handoff lives in
 
 From nothing to a built, fully checked target, in one line:
 
-**Linux** (installs any missing tools; tested from bare images of Ubuntu 24.04,
-Ubuntu 22.04 and Fedora 41, and on WSL Ubuntu)
+**Linux** (installs any missing tools; verified on Ubuntu, Debian, Fedora, Arch
+and openSUSE)
 
 ```bash
 git clone https://github.com/Hitheshkaranth/VxWorks_Arinc_615A_target_Code.git && cd VxWorks_Arinc_615A_target_Code && ./setup.sh
@@ -87,9 +87,13 @@ minutes the first time.
 
 | Platform | Status of the one-liner |
 | --- | --- |
-| Ubuntu 24.04 · Ubuntu 22.04 · Fedora 41 (bare Docker images) | ✅ verified: install, build, all checks, rehearsal 9/9. On 22.04 it also fetched CMake 3.31.6 |
+| Ubuntu 24.04 · Ubuntu 22.04 · Fedora 41 | ✅ verified from bare Docker images. On 22.04 it also fetched CMake 3.31.6 |
+| Debian 12 · Arch · openSUSE Tumbleweed | ✅ verified from bare Docker images, cloning from GitHub (GCC 12 to 16, CMake 3.25 to 4.4) |
 | WSL Ubuntu · Windows 11 (`setup.bat`) | ✅ verified |
-| Debian 12 · Arch · openSUSE Tumbleweed | ⚠️ supported (`apt` / `pacman` / `zypper`). The first run found issues, now fixed: the C++17 pin for GCC 16 and the audit on CMake 3.25. Not re-verified yet |
+
+On every Linux image, verified means the tools installed, the build succeeded, all
+checks passed and the rehearsal ran 9/9 (target, protocol peer, upload check,
+clean stop).
 
 ### One-line usage
 

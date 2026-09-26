@@ -59,10 +59,11 @@ are now repaired in `third_party/boost_vxworks_overlay`, applied by
   build exited normally in 5 of 5 runs. A clean A/B test was cut short by host
   memory exhaustion and is still open.
 - One-command setup (`setup.sh`, `setup.bat`) verified from bare Docker images of
-  Ubuntu 24.04, Ubuntu 22.04 (fetches CMake 3.31.6) and Fedora 41, on WSL
-  Ubuntu and on Windows 11. Debian 12, Arch and openSUSE exposed an audit bug
-  on CMake 3.25 and GCC 16 building the target as C++20 (C++17 now pinned).
-  Both are fixed, not yet re-verified.
+  Ubuntu 24.04, Ubuntu 22.04 (fetches CMake 3.31.6), Fedora 41, Debian 12, Arch
+  and openSUSE Tumbleweed, all cloning from GitHub, on WSL Ubuntu and on
+  Windows 11. The first matrix exposed two bugs, both fixed and re-verified:
+  the audit on CMake 3.25, and GCC 16 building the target as C++20 (C++17 is now
+  pinned).
 
 ## Original record
 
